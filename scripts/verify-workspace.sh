@@ -213,22 +213,24 @@ if [ -f nostdb-core/Cargo.toml ] && [ -d nostdb-spec/fixtures ]; then
     exit 1
   fi
 
-  conformance_log=$(
-    NOSTDB_SPEC_FIXTURES="$workspace_root/nostdb-spec/fixtures" \
-      cargo test --quiet --manifest-path nostdb-core/Cargo.toml \
-      --test container_conformance -- --nocapture 2>&1
-  ) || {
-    echo "the container conformance test failed" >&2
-    printf '%s\n' "$conformance_log" >&2
-    exit 1
-  }
+  for suite in container_conformance nost_conformance; do
+    conformance_log=$(
+      NOSTDB_SPEC_FIXTURES="$workspace_root/nostdb-spec/fixtures" \
+        cargo test --quiet --manifest-path nostdb-core/Cargo.toml \
+        --test "$suite" -- --nocapture 2>&1
+    ) || {
+      echo "the $suite test failed" >&2
+      printf '%s\n' "$conformance_log" >&2
+      exit 1
+    }
 
-  if ! printf '%s\n' "$conformance_log" | grep -q 'fixtures verified'; then
-    echo "the container conformance test did not run against the nostdb-spec fixtures" >&2
-    printf '%s\n' "$conformance_log" >&2
-    exit 1
-  fi
-  printf '%s\n' "$conformance_log" | grep 'fixtures verified'
+    if ! printf '%s\n' "$conformance_log" | grep -q 'verified'; then
+      echo "$suite did not run against the nostdb-spec fixtures" >&2
+      printf '%s\n' "$conformance_log" >&2
+      exit 1
+    fi
+    printf '%s\n' "$conformance_log" | grep 'verified' | sed 's/^\.*//'
+  done
 fi
 
 git diff --check

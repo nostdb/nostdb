@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-26
 
-Current stage: `Stage 4 DONE` (`Stage 5 PENDING`)
+Current stage: `Stage 5 IN_PROGRESS` (increment 1 of 3)
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification and Engine repositories `nostdb-spec` and `nostdb-core` are
@@ -26,7 +26,7 @@ requirements.
 | 2 | DONE | Executable `.nost` and `.nostdb` specification foundation | Stage 1 |
 | 3 | DONE | Core model and typed change contracts | Stage 2 |
 | 4 | DONE | Storage and transaction foundation | Stage 3 |
-| 5 | PENDING | Parser, sync, and deterministic analysis foundation | Stage 4 |
+| 5 | IN_PROGRESS | Parser, sync, and deterministic analysis foundation | Stage 4 |
 | 6 | PENDING | openCypher subset and query execution | Stage 5 |
 | 7 | PENDING | CLI, REPL, conversion, and link management | Stage 6, plus connected `nostdb-cli` |
 | 8 | PENDING | Per-user local daemon | Stage 7, plus connected `nostdb-server` |
@@ -857,6 +857,80 @@ carries opaque section payloads until the encoding contract exists.
 - No conformance fixture is copied into `nostdb-core`.
 - Child CI is green, and root CI is green over the new pin.
 
+## Stage 5 increment 1 verification
+
+Passed on 2026-07-26 in `nostdb-core` at commit `49b33e2`.
+
+Rust command set, all clean: `cargo fmt --check`, `cargo check`, `cargo clippy
+--all-targets --all-features -- -D warnings`, and `cargo test --all-targets
+--all-features` with 161 unit tests, 3 container conformance tests, and 4 `.nost`
+conformance tests.
+
+### Conformance against the published fixtures
+
+All 34 `.nost` fixtures reproduce their declared outcome:
+
+| Suite | Fixtures | Result |
+| --- | --- | --- |
+| accepted | 9 | parse, and raise no diagnostic at all |
+| syntactically rejected | 13 | rejected, each with a usable source range |
+| semantically rejected | 12 | parse, and raise the declared diagnostic code |
+| round trip | 9 | formatting is idempotent, and 9 comments survive |
+
+This parser was written independently of the reference encoding in `nostdb-spec` and
+agrees with it on every accept and reject decision. The two use different technology,
+which is the point: the reference encoding is a PEG and this is recursive descent, so
+agreement is evidence about the contract rather than about shared code.
+
+### Positions are deliberately not compared
+
+The fixtures record a line and column for each rejection, and the language contract
+marks them informative. This suite asserts rejection with a range and does not compare
+positions.
+
+That decision, made in Stage 2, paid off here. The reference encoding reports the
+furthest position it reached while backtracking; this parser reports the offending
+token. Their positions differ on most rejection fixtures, and both are correct. Had
+Stage 2 made positions normative, conformance would have failed for a reason that says
+nothing about the language.
+
+### Defects this increment found and fixed
+
+Formatting was not idempotent. The lexer kept the leading space of a `// comment`, and
+the formatter added one on output, so each pass grew the gap by a character. The lexer
+now trims comment text on both ends, which makes one space after `//` the canonical
+form and makes output stabilize.
+
+A comment could be lost. A module with a comment after both its opening and closing
+brace had two candidates for one trailing slot, and the second was discarded. The
+closing-brace comment is now left in the stream to attach to whatever follows, so no
+comment is dropped.
+
+Both were caught by tests written alongside the code rather than by the fixtures, which
+do not exercise a comment in both positions of one module.
+
+### Recorded finding: two small contract gaps
+
+The confidence range rule names no property key. The language contract requires a
+confidence score to fall within `0.0..=1.0` but does not say which property carries
+one. This build uses `confidence_score`, matching the fixture, and the key should be
+fixed in the contract.
+
+The blank-line rule is ambiguous for single-line declarations. The contract requires
+one blank line between sibling declarations. Read strictly, that puts a blank line
+between every `@link`, which contradicts the PRD's own illustrative example. This build
+treats the link declarations as one group and separates block declarations, and the
+rule should be narrowed to block declarations.
+
+Both are recorded rather than silently decided, and both are contract changes belonging
+to `nostdb-spec`.
+
+### Remaining Stage 5 work
+
+Increment 2 is section payload encodings, so a graph round-trips through a container.
+Increment 3 is the synchronization state machine and the deterministic analyzer
+capability boundary. Stage 5 stays `IN_PROGRESS`.
+
 ## Stage 4 verification
 
 Passed on 2026-07-26 in `nostdb-core` at commit `c548903`.
@@ -947,4 +1021,52 @@ Edge, a property, or an Evidence record is laid out inside a section is a separa
 contract that lands with the parser in Stage 5, which is the first thing that needs
 to turn a record into bytes.
 
-Stage 5 was not started in this request.
+## Stage 5 scope
+
+Stage 5 carries three separable bodies of work. It is taken in three increments so
+each one is verifiable on its own, and the Stage stays `IN_PROGRESS` until all three
+are done. The Stage table is unchanged; only the order of work inside it is recorded.
+
+| Increment | Content | Status |
+| --- | --- | --- |
+| 1 | `.nost` lexer, comment-preserving CST, parser, semantic validation, canonical formatter | this request |
+| 2 | section payload encodings, so a graph round-trips through a container | not started |
+| 3 | synchronization state machine and the deterministic analyzer capability boundary | not started |
+
+Increment 1 is first because everything else in Stage 5 depends on it: an encoding has
+nothing to encode until records can be read, and synchronization has nothing to
+compare until a `.nost` file can be parsed and canonicalized.
+
+### Increment 1 scope
+
+- a lexer producing tokens, spans, and trivia, including the tagged `bytes` and
+  `datetime` literals;
+- a recursive-descent parser producing a comment-preserving tree, with parse errors
+  carrying source ranges;
+- the semantic diagnostics the language contract lists, which parsing cannot express;
+- the canonical formatter, whose second pass is byte-identical;
+- conformance against all 34 `.nost` fixtures in `nostdb-spec`, exercised from the
+  superproject rather than a vendored copy.
+
+### Deferred to later increments
+
+- section payload encodings, carried over from Stage 4;
+- the synchronization state machine, including `SYNC_CONFLICT` when both
+  representations changed from one baseline;
+- analyzer capability declaration and deterministic structural extraction.
+
+## Stage 5 increment 1 acceptance criteria
+
+- Every accepted `.nost` fixture parses.
+- Every syntactically invalid fixture is rejected with a diagnostic carrying a source
+  range. Positions are not compared against the fixtures' recorded values, which the
+  language contract marks informative and specific to the reference encoding.
+- Every semantically invalid fixture parses and raises the diagnostic code it
+  declares.
+- Every comment survives a parse and format round trip, with its attachment.
+- Formatting is idempotent: formatting formatted output reproduces it byte for byte.
+- Canonical output obeys the contract's ordering, indentation, and empty-block rules.
+- No `.nost` fixture is copied into `nostdb-core`.
+- `cargo fmt --check`, `cargo check`, `cargo clippy --all-targets --all-features
+  -- -D warnings`, and `cargo test --all-targets --all-features` pass.
+- Child CI is green, and root CI is green over the new pin.
