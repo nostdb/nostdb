@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-26
 
-Current stage: `Stage 1 DONE` (`Stage 2 PENDING`)
+Current stage: `Stage 2 DONE` (`Stage 3 PENDING`)
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification and Engine repositories `nostdb-spec` and `nostdb-core` are
@@ -23,7 +23,7 @@ requirements.
 | --- | --- | --- | --- |
 | 0 | DONE | Root workspace documents, instructions, license, and verification | none |
 | 1 | DONE | Connect and pin the specification and Engine repositories `nostdb-spec` and `nostdb-core` | exact URLs and explicit remote authorization |
-| 2 | PENDING | Executable `.nost` and `.nostdb` specification foundation | Stage 1 |
+| 2 | DONE | Executable `.nost` and `.nostdb` specification foundation | Stage 1 |
 | 3 | PENDING | Core model and typed change contracts | Stage 2 |
 | 4 | PENDING | Storage and transaction foundation | Stage 3 |
 | 5 | PENDING | Parser, sync, and deterministic analysis foundation | Stage 4 |
@@ -472,3 +472,179 @@ placeholder or local-path gitlink was introduced for a deferred child.
 
 The alternative resolution, authorizing all seven children at once, remains
 available and would satisfy several later dependencies in a single step.
+
+## Stage 2 scope
+
+Author the `.nost` language contract and the `.nostdb` format contract in
+`nostdb-spec`, with a conformance fixture suite and a test-only harness that
+proves the contracts are internally consistent.
+
+In scope:
+
+- an independent version registry in human and machine-readable form;
+- the `.nost` language contract v1: lexical rules, a normative generator-neutral
+  EBNF, property value types, endpoint reference forms, and the spec-owned
+  diagnostic code registry;
+- an executable reference encoding of the grammar, so the grammar is runnable;
+- the `.nostdb` format contract v1: magic, versioning, endianness, integer widths,
+  header layout, section table layout, checksums, generation, bounded-parsing
+  limits, and unsupported-version behavior;
+- machine-readable descriptors for versions, diagnostics, and the `.nostdb`
+  header;
+- conformance fixtures covering accepted `.nost`, syntactically rejected `.nost`,
+  semantically rejected `.nost`, and `.nostdb` header bytes;
+- a test-only conformance harness, wired into the repository verifier and CI.
+
+### Deferred out of Stage 2
+
+- provider, plugin, and server protocol schemas, and the settings, credentials,
+  catalog, and result-envelope schemas. Stages 7 through 12 depend on those;
+  Stages 3 through 6 do not.
+- any parser, CST, formatter, analyzer, or storage implementation, which
+  `nostdb-core` owns.
+
+### Normativity split
+
+The normative artifacts are the contract documents, the generator-neutral EBNF,
+and the fixture suite with its declared expectations. The executable grammar is a
+reference encoding: it must agree with the fixtures, but it does not constrain
+which parser technology `nostdb-core` chooses. `nostdb-core` proves conformance in
+Stage 5 by passing the same fixtures with its own parser.
+
+This keeps the parser in `nostdb-core` and keeps `nostdb-spec` free of a second
+implementation, while still making the grammar executable rather than prose.
+
+## Stage 2 acceptance criteria
+
+- The version registry declares the `.nost`, `.nostdb`, settings, provider,
+  plugin, and server versions independently, in human and machine-readable form.
+- Every nonterminal in the normative EBNF is defined, and every defined rule is
+  reachable from the start symbol.
+- The contract defines the aliasless external reference form that `docs/PRD.md`
+  section 13.2 delegates to `nostdb-spec`.
+- Stored `null` is unrepresentable in the grammar.
+- Every diagnostic code a fixture declares exists in the registry, and every
+  registry code is documented.
+- Accepted fixtures parse under the reference encoding.
+- Syntactically rejected fixtures fail with the declared code, and the reference
+  encoding reports each fixture's recorded informative position.
+- Semantically rejected fixtures parse, and each declares the diagnostic code an
+  implementation must raise.
+- The `.nostdb` contract fixes magic, version, endianness, integer widths, header
+  layout, section table layout, checksum algorithm, and bounded-parsing limits.
+- Header fixtures cover a valid header and every rejection class, and the harness
+  reproduces each declared outcome.
+- `cargo fmt --check`, `cargo check`, `cargo clippy --all-targets --all-features
+  -- -D warnings`, and `cargo test --all-targets --all-features` pass.
+- `scripts/verify-repository.sh` runs the harness, and root CI passes over the new
+  pin.
+- No parser, CST, formatter, or storage implementation is added to `nostdb-spec`.
+
+## Stage 2 verification
+
+Passed on 2026-07-26 in `nostdb-spec` at commit `b19afd0`.
+
+Rust command set, all clean:
+
+- `cargo fmt --check`
+- `cargo check --all-targets --all-features`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test --all-targets --all-features`, 20 tests passing
+
+Repository and workspace:
+
+- `bash -n scripts/verify-repository.sh`
+- `./scripts/verify-repository.sh`, which now requires every contract artifact and
+  runs the Rust command set, so a local pass and a CI pass are equivalent
+- `./scripts/verify-workspace.sh` in the root with both children pinned
+- the exact `git submodule foreach` command from the root workflow, across both
+  children
+- the child workflow parsed as YAML
+
+Conformance suite:
+
+| Suite | Fixtures | What it establishes |
+| --- | --- | --- |
+| `fixtures/nost/valid` | 9 | accepted, and each obeys the encoding rules in language contract section 2 |
+| `fixtures/nost/invalid-syntax` | 13 | rejected, each at its recorded reference position |
+| `fixtures/nost/invalid-semantic` | 12 | parse, and each declares a registered diagnostic code |
+| `fixtures/nostdb/header` | 20 | 3 accepted containers and 17 rejections spanning `NOSTDB_CORRUPT`, `NOSTDB_FORMAT_UNSUPPORTED`, and `NOSTDB_LIMIT_EXCEEDED` |
+
+Harness checks beyond fixture outcomes:
+
+- every EBNF nonterminal is defined, and every rule is reachable from the declared
+  roots;
+- the reference encoding defines the same rule set as the normative EBNF, with
+  documented allowances where pest has a built-in for a lexical primitive;
+- the version registry and `VERSIONS.md` agree, and every `specified` contract
+  names a file that exists;
+- every registered diagnostic code is documented in the contract that owns it, and
+  every code a fixture declares is registered;
+- every `.nost` semantic diagnostic in the registry has a fixture;
+- the header descriptor's fields are contiguous and total its declared length;
+- CRC-32C reproduces the standard check value `0xE3069283` for `123456789`;
+- flipping any single bit in the 44 checksum-covered header bytes is detected.
+
+### Defects this Stage found and fixed
+
+The EBNF consistency checker failed on its first run. The grammar file's own header
+comment contained a comment terminator inside a notation example, which closed the
+comment early, so the remaining prose was scanned as grammar. The file was
+corrected rather than the checker relaxed.
+
+The reference encoding reported `expected escape_sequence` at a position inside a
+well-formed string literal whenever an enclosing rule failed later, because
+compound-atomic literal rules leaked inner failures into error reporting. Making
+the literal rules fully atomic moved the reported position to the start of the
+failing declaration, which is where a reader would look.
+
+### Recorded decision: normative and informative expectations
+
+A fixture expectation separates `outcome` and `code`, which every implementation
+must reproduce, from `reference_line` and `reference_column`, which pin the
+reference encoding alone.
+
+The position at which a parser detects a syntax error is an artifact of its
+technology. A PEG reports the furthest position reached while backtracking, a
+table-driven parser reports the offending token, and a parser with error recovery
+may report several. Requiring one exact column would bind every implementation to
+one parser design, which is precisely what `nostdb-spec` must avoid. What every
+implementation MUST do is reject the input and attach a source range.
+
+### Recorded decision: normativity of the grammar
+
+The normative grammar is `grammar/nost.ebnf`, which is parser-generator neutral,
+together with the fixture suite. `grammar/nost.pest` is an executable reference
+encoding: it makes the grammar runnable and is cross-checked against the EBNF rule
+set, but it does not constrain `nostdb-core`'s parser technology.
+
+The reference encoding and the container validator live in `tests/` with no public
+API, and the crate declares `publish = false`. They recognize and validate; they
+build no CST and interpret no section payload. `nostdb-core` implements the real
+parser and reader in Stages 3 through 5 and proves conformance against this same
+suite.
+
+### Dependencies added
+
+| Dependency | Scope | Purpose | Maintenance | License |
+| --- | --- | --- | --- | --- |
+| `pest`, `pest_derive` | dev only | executable reference encoding of the grammar | active, `pest-parser/pest` | MIT OR Apache-2.0 |
+| `serde_json` | dev only | reading the machine-readable registries so they are checked rather than trusted | active, `serde-rs/json` | MIT OR Apache-2.0 |
+
+All three are development dependencies, so no consumer of `nostdb-spec` inherits
+them. `rust-toolchain.toml` pins the channel to stable with `rustfmt` and `clippy`,
+so a local run and a CI run use the same toolchain rather than whatever a runner
+image preinstalls.
+
+### Deferred out of Stage 2
+
+The settings, credentials, catalog, result-envelope, provider, plugin, manifest,
+and change-set contracts keep reserved version keys and remain unauthored. Stages
+7 through 12 depend on them; Stages 3 through 6 do not.
+
+Section payload encodings are also deferred. Stage 2 fixes the container envelope
+so an implementation can already refuse a corrupt or unsupported file; how a node
+record is laid out inside the `nodes` section is specified when the model lands in
+Stage 3.
+
+Stage 3 was not started in this request.
