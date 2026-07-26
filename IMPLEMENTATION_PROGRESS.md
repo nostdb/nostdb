@@ -370,3 +370,11 @@ Passed on 2026-07-26:
   also exercises the new pin-legitimacy checks against a second entry
 - the exact `git submodule foreach` command from the root workflow across both
   children
+- `nostdb-core` CI run `30196046094` passed on its first push
+- root CI run `30196139463` passed on the connecting push, checking out
+  `nostdb-core` at `661d035a` and `nostdb-spec` at `725b761a`, then passing
+  `workspace verification`, `nostdb-core verification`, and `nostdb-spec
+  verification`
+
+That run is the first full demonstration of the `docs/PRD.md` section 30.10
+requirement that root CI verify the exact pinned commit set.
