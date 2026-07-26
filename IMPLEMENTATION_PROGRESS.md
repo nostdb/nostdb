@@ -1065,10 +1065,17 @@ In the root:
   the diagnostic drift described above
 - `git diff --check`
 
-Not yet run: continuous integration. All three commits are local, because pushing was not
-authorized in this request. Root CI verifies the pinned commit set, and a root pin cannot
-resolve until the child commits are pushed, so the order when it is authorized is both
-children first and the root last.
+Continuous integration, after the push was authorized:
+
+| Repository | Run | Commit |
+| --- | --- | --- |
+| `nostdb-spec` | `30210517259` | `9bb9665` |
+| `nostdb-core` | `30210523368` | `b40421b` |
+| root `nostdb` | `30210528017` | `1041ff4` |
+
+The root run checked out both pins recursively, passed `scripts/verify-workspace.sh`, and
+passed each child's `scripts/verify-repository.sh`. The children were pushed before the root,
+because a root pin cannot resolve until the commit it names exists on the remote.
 
 Four new specification checks, each proven to reject rather than assumed to work:
 
