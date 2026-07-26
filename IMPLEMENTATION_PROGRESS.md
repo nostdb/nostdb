@@ -292,4 +292,30 @@ Passed on 2026-07-26:
 - the eight negative cases above, each rejected with its intended diagnostic
 - the advanced submodule rejected before re-pinning and accepted after
   `git add nostdb-spec`
+- the exact `git submodule foreach` command from the root workflow
 - `git diff --check`
+- `nostdb-spec` CI run `30195693215` succeeded on its first push, using the
+  pinned `actions/checkout` commit
+
+Root CI has not executed. See the billing blocker below.
+
+### Blocked: root CI cannot start
+
+The child workflow ran green immediately. The root workflow has never executed,
+because GitHub refused to start the job:
+
+```text
+The job was not started because recent account payments have failed or your
+spending limit needs to be increased.
+```
+
+`nostdb/nostdb` is private, so its Actions minutes are billed, while the public
+`nostdb/nostdb-spec` runs free. The workflow is therefore unexercised rather than
+broken, and both of its run steps pass when simulated locally.
+
+Resolving this needs an account decision rather than a code change. Either
+restore billing or raise the spending limit for the `nostdb` organization, or
+make the root repository public so its Actions run free. Until one of those
+happens, the recursive-checkout requirement in `docs/PRD.md` sections 8.1 and
+30.10 is implemented but unverified in CI, and every root push will record a
+failed run.
