@@ -12,7 +12,14 @@ workspace. Runtime implementation does not belong in the root repository.
 
 The root workspace is initialized, and `nostdb-spec` and `nostdb-core` are
 connected as submodules pinned to exact commits. No legacy runtime code has been
-copied into this repository, and neither child carries implementation code yet.
+copied into this repository.
+
+`nostdb-spec` publishes the `.nost` language, `.nostdb` container, and query
+subset contracts with a conformance suite. `nostdb-core` implements the graph
+model, the container and its transactions, the `.nost` parser and canonical
+formatter, synchronization, the deterministic analysis boundary, and the
+openCypher subset including writes and explicit transactions. See
+[Implementation progress](IMPLEMENTATION_PROGRESS.md) for the current Stage.
 
 The remaining seven repositories will be created and connected only after each
 one is explicitly authorized.

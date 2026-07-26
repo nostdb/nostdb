@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-26
 
-Current stage: `Stage 6 IN_PROGRESS` (increments 1 and 2 of 3 done)
+Current stage: `Stage 6 DONE`. Stage 7 is `PENDING` on a connected `nostdb-cli`.
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification and Engine repositories `nostdb-spec` and `nostdb-core` are
@@ -27,7 +27,7 @@ requirements.
 | 3 | DONE | Core model and typed change contracts | Stage 2 |
 | 4 | DONE | Storage and transaction foundation | Stage 3 |
 | 5 | DONE | Parser, sync, and deterministic analysis foundation | Stage 4 |
-| 6 | IN_PROGRESS | openCypher subset and query execution | Stage 5 |
+| 6 | DONE | openCypher subset and query execution | Stage 5 |
 | 7 | PENDING | CLI, REPL, conversion, and link management | Stage 6, plus connected `nostdb-cli` |
 | 8 | PENDING | Per-user local daemon | Stage 7, plus connected `nostdb-server` |
 | 9 | PENDING | GitHub provider | Stage 7, plus connected `nostdb-provider-github` |
@@ -866,7 +866,243 @@ verifiable on its own, and the later ones depend on the earlier.
 | --- | --- | --- |
 | 1 | query subset contract in `nostdb-spec`, plus the Cypher lexer and parser for the read subset | DONE |
 | 2 | semantic analysis and read execution over a graph | DONE |
-| 3 | write clauses, explicit transactions, and `CALL nostdb.*` procedures | not started |
+| 3 | write clauses, explicit transactions, and `CALL nostdb.*` procedures | DONE |
+
+### Increment 3 scope
+
+Complete the published query subset, so nothing in it is refused by the Engine.
+
+In `nostdb-spec`:
+
+- specify aggregation, including the grouping rule, the value each aggregate yields
+  over no input, and the scope `WHERE` and `ORDER BY` see after an aggregating
+  projection;
+- specify inline property maps, which `MERGE` needs to be meaningful;
+- specify write-clause semantics for `CREATE`, `MERGE`, `SET`, `REMOVE`, `DELETE`, and
+  `DETACH DELETE`, including the rules NostDB's model imposes on openCypher;
+- specify explicit transactions and the stale-base-generation conflict;
+- specify the `CALL nostdb.*` procedure and `nostdb.*` function registry, with each
+  one's columns, and mark the one that needs a capability this build does not have;
+- register `LINKED_DATABASE_READ_ONLY`, which the contract already named and the
+  registry did not carry;
+- add write, aggregation, and procedure fixtures, plus a `semantic/` suite, because no
+  fixture covered `CYPHER_SEMANTIC_ERROR` at all.
+
+In `nostdb-core`:
+
+- parse and execute every construct above;
+- mint record identifiers, deferred since Stage 3;
+- add explicit transactions over an open database.
+
+## Stage 6 increment 3 verification
+
+Passed on 2026-07-26 in `nostdb-spec` at `9bb9665` and `nostdb-core` at `b40421b`.
+
+Rust command set clean in both children: 327 unit tests plus 17 conformance and storage
+tests in the Engine, and 28 tests in the specification harness.
+
+All 67 published Cypher fixtures reproduce their declared outcome: 38 accepted, 19 refused
+with `CYPHER_UNSUPPORTED`, and 10 refused with `CYPHER_SEMANTIC_ERROR`.
+
+This completes Stage 6. Nothing in the published subset is refused by the Engine, apart from
+the one procedure whose capability is gated.
+
+### Version 1 was completed rather than superseded
+
+Adding writing, aggregation, and procedures to a published contract without bumping its
+version needs a reason. Version 1 already declared `CREATE`, `MERGE`, `SET`, `REMOVE`,
+`DELETE`, `DETACH DELETE`, and `CALL` in the subset, and stated that write fixtures would
+arrive with write support; aggregation and map expressions are named by `docs/PRD.md` section
+19.1 as part of the same MVP subset. Sections 8 through 12 are therefore the completion of
+version 1, and the document says so at the top.
+
+A second version would have implied that an implementation could conform to version 1 by
+implementing reading only, which the first revision explicitly did not offer.
+
+### A published contract named an unregistered code
+
+`docs/QUERY_SUBSET.md` named `LINKED_DATABASE_READ_ONLY` from its first revision, and
+`diagnostics.json` never carried it. The registry check ran only in the other direction, so a
+published contract promised a code no implementation could look up and nothing noticed.
+
+The code is now registered, and a new tripwire fails when a specified contract mentions a
+code-shaped token the registry does not carry. Every backticked upper-snake token across the
+three contracts is a diagnostic code, so the check is exact rather than approximate.
+
+The Engine carries the variant and cannot yet emit it. That is recorded on the variant itself
+rather than left for a reader to wonder about: no linked record is bindable until link
+resolution and recursive federation land, so a write has no way to name one. The guarantee is
+structural rather than checked, because every mutation resolves through the root graph.
+
+### The cross-repository check caught the drift it exists for
+
+Registering the code in the specification and not the Engine failed
+`scripts/verify-workspace.sh` immediately, naming `LINKED_DATABASE_READ_ONLY` as present in
+one and absent from the other. That is the second time this check has earned its place.
+
+### Two defects the increment found
+
+The sort key ordered `-3` before `-5`. It formatted a number into a fixed-width string and
+compared strings, so `"-00000000000000000003"` sorted before `"-00000000000000000005"`, and
+an integer could not be compared against a float at all. The key is now a typed enumeration
+whose variant order *is* the total order the contract states, with an exact integer-to-float
+comparison rather than a conversion that would call two distinct large integers equal.
+
+Equality was made to agree with it, because `1 = 1.0` is true in Cypher and `DISTINCT`
+already treated them as one value. Leaving them apart would have meant `DISTINCT` folding
+together two values that `=` reported as different.
+
+The defect was carried from increment 2 and surfaced only because this increment wrote the
+ordering rule down. Fixing it also removed the trick that expressed a descending sort by
+complementing each character of the key; one comparator that knows each key's direction
+replaces it.
+
+An unaliased column was named by the Rust debug rendering of its expression, so
+`RETURN toUpper(n.name)` produced a column called `Call { name: "toUpper", .. }`. Columns are
+now named by the expression's own text, which is what openCypher does, and which aggregation
+needed anyway.
+
+### Identifier minting: deterministic rather than random
+
+Minting was deferred in Stage 3 because choosing an entropy source belonged with storage.
+There is no entropy source: an identifier is derived from the generation being written and a
+counter within the transaction.
+
+An identifier only has to be unique within one database, because a record is identified
+across databases by the pair of canonical locator and local identifier. A generation is
+committed at most once, so no two transactions can mint the same value and a deleted record's
+identifier is never reissued.
+
+Determinism also buys something randomness would take away: the same write against the same
+database produces the same bytes, which is what lets synchronization compare content digests
+rather than wall-clock time. A test asserts two identical databases stay byte-identical after
+the same write.
+
+A `.nost` file may state an identifier explicitly, so a minted candidate is checked against
+the graph and skipped if taken. The counter never repeats, so that terminates.
+
+### The read-only boundary is structural
+
+`execute` takes `&mut Graph`. A caller holding a shared graph therefore cannot execute a
+writing query at all, rather than being told it may not. That replaced the alternative of a
+read-only entry point that refuses a write, which would have needed a diagnostic code
+meaning "correct query, wrong entry point" — and the contract's own definitions say
+`CYPHER_SEMANTIC_ERROR` means retrying will not help, which would have been false.
+
+### A write reporting no change modifies nothing
+
+A transaction decides from its change count whether to advance the generation, so the count
+saying nothing changed has to mean the file is untouched. `REMOVE` of an absent property and
+`SET` of a label already present therefore record no user contribution either; an earlier
+draft added one, which would have advanced a generation over a query that did nothing.
+
+The rule is one-directional on purpose, and the contract says why: reporting a change that
+did nothing costs a caller a generation, while reporting no change after modifying the
+database would lose the modification.
+
+### Snapshot semantics for write values, stated rather than emergent
+
+The values a write clause assigns are evaluated against the graph as the clause found it, so
+one row's write cannot change what another row assigns. `MERGE` is the deliberate exception,
+because matching per row is what keeps a repeated row from creating a duplicate.
+
+Both are tested: swapping two properties in one `SET` swaps them rather than collapsing them
+to one value, and merging over `["alpha", "alpha", "beta"]` creates two records.
+
+### A third fixture suite, because one code had none
+
+No fixture covered `CYPHER_SEMANTIC_ERROR`, even though the code is required by
+`docs/PRD.md` section 28 and registered since increment 1. `fixtures/cypher/semantic/` now
+holds ten.
+
+Writing it exposed a wrong assumption. Four of the ten are not refused while parsing: a
+created node without a label depends on whether the variable is already bound, which the
+parser does not know. The suite's requirement is therefore that a fixture is refused against
+*any* graph including an empty one, and that it leaves that graph untouched, which is both
+honest and a stronger assertion than refusal alone.
+
+Two of the four moved into the parser on the way, because an undirected or untyped
+relationship in a write clause is settled by the pattern alone. The writer still refuses
+them, since it is a public API a caller can hand a hand-built pattern to.
+
+### Recorded divergence closed
+
+Increment 1 refused every write clause and increment 2 refused every aggregate, both
+recorded as temporary. Both are now implemented, and the fixture suites cover them.
+
+`nostdb.refresh_links()` is the one remaining refusal, and it is a contract feature rather
+than a gap: the contract marks it capability-gated, and refusing with `CYPHER_UNSUPPORTED`
+naming the missing provider is what it requires of a build without one. Answering "nothing
+changed" instead would be a plausible lie. It closes with the GitHub provider in Stage 9 and
+link management in Stage 7.
+
+### Deferred out of Stage 6
+
+- the machine-readable result envelope. `result_version` is still unauthored in
+  `nostdb-spec`, and `QueryResult` stays an in-memory type carrying a write summary. It lands
+  with the CLI output formats in Stage 7;
+- link resolution and recursive federation, which Stage 7 needs for link management and
+  Stage 9 for remote sources. Until then a query sees its root database only, which is a
+  subset of what the contract permits rather than a contradiction of it;
+- build coverage in `nostdb.build_status()`. The container reserves a section for it and
+  nothing writes one yet, so the procedure reports what the database records. Adding a
+  column later is a `query_subset_version` change, which the contract states.
+
+### Verification commands
+
+In `nostdb-spec`:
+
+- `cargo fmt --check`, `cargo check --all-targets --all-features`,
+  `cargo clippy --all-targets --all-features -- -D warnings`,
+  `cargo test --all-targets --all-features`
+- `bash -n scripts/verify-repository.sh` and `./scripts/verify-repository.sh`
+
+In `nostdb-core`, the same command set plus `./scripts/verify-repository.sh`.
+
+In the root:
+
+- `./scripts/verify-workspace.sh` over the re-pinned commit set, which also failed first on
+  the diagnostic drift described above
+- `git diff --check`
+
+Not yet run: continuous integration. All three commits are local, because pushing was not
+authorized in this request. Root CI verifies the pinned commit set, and a root pin cannot
+resolve until the child commits are pushed, so the order when it is authorized is both
+children first and the root last.
+
+Four new specification checks, each proven to reject rather than assumed to work:
+
+| Rejected condition | Diagnostic |
+| --- | --- |
+| a contract naming an unregistered code | `docs/QUERY_SUBSET.md mentions LINKED_DATABASE_READ_ONLY, which the registry does not carry` |
+| a fixture declaring the wrong outcome for its directory | `must declare outcome = accept` |
+| an expectation file whose fixture was deleted | `has no fixture` |
+| a declared aggregate with no accepted fixture | `the contract declares sum() in section 9.1, but no accepted fixture uses it` |
+
+Every newly published refusal was also exercised end to end and reports the intended code
+with a message that says why, including each write-clause model rule, both whole-record
+assignment spellings, `DISTINCT` inside an aggregate, an aggregate in a `MATCH` predicate, a
+nested aggregate, a writing `UNION` operand, a `YIELD` of a column no procedure produces, an
+unknown procedure, and the capability-gated one.
+
+## Stage 6 increment 3 acceptance criteria
+
+- Every clause the query subset contract declares is accepted and executed, with the single
+  capability-gated procedure refused as the contract requires.
+- Aggregation groups by the non-aggregate items, and an aggregate with no grouping key
+  answers over no input rather than answering nothing.
+- A write is user-owned and preserves every other contribution on the record.
+- A created record satisfies the model's rules or the query is refused; nothing invalid is
+  stored.
+- A transaction reports a conflict rather than rebasing when the database advanced, a
+  rollback leaves the file byte-identical, and a read-only transaction does not advance the
+  generation.
+- Identifiers are minted without an entropy source, and the same write against the same
+  database produces the same bytes.
+- Every published fixture reproduces its declared outcome, and no fixture is copied into
+  `nostdb-core`.
+- The Rust command set passes in both children, and the root verifier passes over both new
+  pins.
 
 ### Increment 1 scope
 
