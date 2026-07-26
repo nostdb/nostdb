@@ -378,3 +378,70 @@ Passed on 2026-07-26:
 
 That run is the first full demonstration of the `docs/PRD.md` section 30.10
 requirement that root CI verify the exact pinned commit set.
+
+## Stage 1 continuation: root boundary enforcement
+
+Stage 1 stays `IN_PROGRESS` at 2 of 9. This increment created nothing remote,
+because the seven remaining children are still unauthorized. It enforced two
+Stage 1 acceptance criteria that nothing previously checked.
+
+### No runtime implementation in the root
+
+`docs/PRD.md` sections 8.1 and 30.10 forbid duplicating runtime implementation in
+the root, and the root `AGENTS.md` limits this repository to cross-repository
+documents, exact pins, orchestration, and verification. Nothing enforced it.
+
+`scripts/verify-workspace.sh` now rejects any tracked root path that is a runtime
+build manifest or a runtime source file. Submodule contents are excluded
+automatically, because `git ls-files` does not descend into a gitlink.
+
+### Child verifier convention enforced locally
+
+Root CI required every connected child to provide an executable
+`scripts/verify-repository.sh`, but the local verifier did not check it, so a
+local pass did not imply a CI pass. The local verifier now checks it too.
+
+### Verification
+
+Passed on 2026-07-26. Six further negative cases, each rejected with its intended
+diagnostic:
+
+| Rejected condition | Diagnostic |
+| --- | --- |
+| root `Cargo.toml` | `must not contain runtime implementation or build manifests` |
+| root `package.json` | `must not contain runtime implementation or build manifests` |
+| root `src/lib.rs` | `must not contain runtime implementation or build manifests` |
+| nested `docs/helper.py` | `must not contain runtime implementation or build manifests` |
+| child verifier not executable | `must provide an executable scripts/verify-repository.sh` |
+| child verifier missing | `must provide an executable scripts/verify-repository.sh` |
+
+The current root tree still passes, which confirms `skills-lock.json` and the
+shell and YAML orchestration files are not false positives.
+
+Counting the earlier increment, the workspace verifier now has fourteen proven
+rejections.
+
+## Recorded conflict: Stage granularity blocks all implementation
+
+The root `AGENTS.md` requires recording a contract conflict here and keeping the
+current valid behavior unchanged until the owning contract is resolved. This is
+such a conflict, so the Stage table is deliberately left unamended.
+
+The Stage table makes Stage 2 depend on Stage 1, and the Stage 1 scope is every
+one of the nine child repositories. Read strictly, no specification or Engine work
+can begin until seven more repositories exist, including `homebrew-tap`,
+`plugins`, `skills`, and `nostdb-distribution`, which no Stage needs before
+Stages 10 through 12.
+
+Stage 2 in fact depends only on `nostdb-spec`, connected in the first increment.
+Stages 3 through 6 depend only on `nostdb-core`, connected in the second.
+
+Two resolutions exist, and both are the user's decision:
+
+1. authorize the remaining seven children, which closes Stage 1 as written;
+2. narrow the Stage 1 scope to the children that later Stages actually depend on,
+   and move the distribution-time repositories into their own late Stage.
+
+Until one is chosen, Stage 1 stays `IN_PROGRESS`, Stage 2 stays `PENDING` with an
+unmet dependency, and no Stage is started. No part of the workspace is blocked by
+a defect.

@@ -51,6 +51,20 @@ if [ ! -L CLAUDE.md ] || [ "$(readlink CLAUDE.md)" != "AGENTS.md" ]; then
   exit 1
 fi
 
+# The root owns cross-repository documentation, exact pins, orchestration, and
+# verification only. docs/PRD.md sections 8.1 and 30.10 forbid duplicating
+# runtime implementation here. Submodule contents are excluded automatically,
+# because `git ls-files` does not descend into a gitlink.
+if runtime_paths=$(
+  git ls-files |
+    grep -E '(^|/)(Cargo\.(toml|lock)|package\.json|pyproject\.toml|go\.mod)$|\.(rs|js|mjs|cjs|ts|tsx|py|go|c|h|cc|cpp|java|rb)$'
+); then
+  echo "the root repository must not contain runtime implementation or build manifests" >&2
+  echo "move these into the owning child repository:" >&2
+  printf '%s\n' "$runtime_paths" >&2
+  exit 1
+fi
+
 # Normative child directory names, from docs/PRD.md section 8.1.
 normative_submodule_paths="
 nostdb-spec
@@ -130,6 +144,14 @@ if [ -f .gitmodules ]; then
 
     if ! printf '%s\n' $normative_submodule_paths | grep -qx "$submodule_path"; then
       echo "submodule path is not a normative child directory name: $submodule_path" >&2
+      exit 1
+    fi
+
+    # docs/REPOSITORIES.md requires every child to provide this, and root CI runs
+    # it for each connected child. Checking it here keeps a local pass and a CI
+    # pass equivalent instead of letting CI discover the gap first.
+    if [ ! -x "$submodule_path/scripts/verify-repository.sh" ]; then
+      echo "submodule $submodule_name must provide an executable scripts/verify-repository.sh" >&2
       exit 1
     fi
   done < <(git config --file .gitmodules --get-regexp '^submodule\..*\.url$')
