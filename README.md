@@ -10,9 +10,9 @@ workspace. Runtime implementation does not belong in the root repository.
 
 ## Current status
 
-The root workspace is initialized, and `nostdb-spec` and `nostdb-core` are
-connected as submodules pinned to exact commits. No legacy runtime code has been
-copied into this repository.
+The root workspace is initialized, and `nostdb-spec`, `nostdb-core`, and
+`nostdb-cli` are connected as submodules pinned to exact commits. No legacy
+runtime code has been copied into this repository.
 
 `nostdb-spec` publishes the `.nost` language, `.nostdb` container, and query
 subset contracts with a conformance suite. `nostdb-core` implements the graph
@@ -21,8 +21,10 @@ formatter, synchronization, the deterministic analysis boundary, and the
 openCypher subset including writes and explicit transactions. See
 [Implementation progress](IMPLEMENTATION_PROGRESS.md) for the current Stage.
 
-The remaining seven repositories will be created and connected only after each
-one is explicitly authorized.
+`nostdb-cli` is connected as scaffolding; its command surface lands in Stage 7.
+
+The remaining six repositories will be created and connected by the Stage that
+first needs each one.
 
 ## Start here
 
@@ -40,7 +42,7 @@ Read in this order:
 nostdb/
 ├── nostdb-spec/              # connected and pinned
 ├── nostdb-core/              # connected and pinned
-├── nostdb-cli/               # not yet authorized
+├── nostdb-cli/               # connected and pinned
 ├── nostdb-server/            # not yet authorized
 ├── nostdb-provider-github/   # not yet authorized
 ├── nostdb-distribution/      # not yet authorized

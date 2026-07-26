@@ -4,3 +4,6 @@
 [submodule "nostdb-core"]
 	path = nostdb-core
 	url = https://github.com/nostdb/nostdb-core.git
+[submodule "nostdb-cli"]
+	path = nostdb-cli
+	url = https://github.com/nostdb/nostdb-cli.git

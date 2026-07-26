@@ -37,11 +37,11 @@ Connected and pinned to an exact commit:
 
 - `nostdb-spec/`
 - `nostdb-core/`
+- `nostdb-cli/`
 
 Not connected. Each is a named dependency of the Stage that first needs it, and
 creating it still requires explicit authorization at that time:
 
-- `nostdb-cli/`
 - `nostdb-server/`
 - `nostdb-provider-github/`
 - `nostdb-distribution/`

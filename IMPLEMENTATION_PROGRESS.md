@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-26
 
-Current stage: `Stage 6 DONE`. Stage 7 is `PENDING` on a connected `nostdb-cli`.
+Current stage: `Stage 7 IN_PROGRESS` (increment 1 of 3)
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification and Engine repositories `nostdb-spec` and `nostdb-core` are
@@ -28,7 +28,7 @@ requirements.
 | 4 | DONE | Storage and transaction foundation | Stage 3 |
 | 5 | DONE | Parser, sync, and deterministic analysis foundation | Stage 4 |
 | 6 | DONE | openCypher subset and query execution | Stage 5 |
-| 7 | PENDING | CLI, REPL, conversion, and link management | Stage 6, plus connected `nostdb-cli` |
+| 7 | IN_PROGRESS | CLI, REPL, conversion, and link management | Stage 6, plus connected `nostdb-cli` |
 | 8 | PENDING | Per-user local daemon | Stage 7, plus connected `nostdb-server` |
 | 9 | PENDING | GitHub provider | Stage 7, plus connected `nostdb-provider-github` |
 | 10 | PENDING | Skills and AI enrichment workflow | Stages 7 and 9, plus connected `skills` |
@@ -1091,6 +1091,97 @@ with a message that says why, including each write-clause model rule, both whole
 assignment spellings, `DISTINCT` inside an aggregate, an aggregate in a `MATCH` predicate, a
 nested aggregate, a writing `UNION` operand, a `YIELD` of a column no procedure produces, an
 unknown procedure, and the capability-gated one.
+
+## Stage 7 scope
+
+Stage 7 is taken in four increments, for the same reason Stages 5 and 6 were.
+
+| Increment | Content | Status |
+| --- | --- | --- |
+| 1 | connect `nostdb-cli` as scaffolding; settle the `.nost` identifier contract; `.nost` to graph conversion in both directions | IN_PROGRESS |
+| 2 | the settings contract, then `help`, `init`, `check`, `convert`, `export`, and the exit classes | not started |
+| 3 | the result envelope contract, then `query` in immediate mode, the multiline REPL, and table, JSON, JSONL, and CSV output | not started |
+| 4 | link resolution and recursive federation in Core, then `link add|remove|list|check|refresh`, `build`, `plan`, `apply`, and `sync` | not started |
+
+The first two were one increment until the work was inspected. Core stops at the `.nost`
+tree: it parses, validates, and formats, and nothing turns a parsed document into a graph or
+a graph back into a document. Synchronization decides *whether* to convert and then has
+nothing to call. That conversion is Engine work, it is what `convert`, `export`, and `sync`
+all stand on, and it is larger than the command surface that uses it.
+
+### Authorized scope
+
+Creating each remaining child repository, connecting it, and pushing was authorized for
+Stages 7 through 12 in one grant rather than per repository. `nostdb-cli` is created in this
+increment; the rest are created by the Stage that first needs them, as the Stage table
+records.
+
+### Why the identifier contract comes first
+
+`nostdb convert` is in this Stage, and it cannot turn a stated `.nost` identifier into a
+record identifier until the contract says what one looks like. See the conflict recorded
+below.
+
+### Deferred out of increment 1
+
+- every command, including the `nostdb-cli` crate itself. Its initial commit is repository
+  scaffolding only, as `nostdb-spec` and `nostdb-core` were when they were connected, so how
+  the CLI depends on the Engine is decided in increment 2 rather than guessed at now;
+- `query` and every output format, which need the result envelope contract;
+- `build`, `plan`, `apply`, and `sync`, which need the analysis pipeline and link resolution;
+- `catalog`, `server`, `plugin`, and `view`, which belong to Stages 8, 11, and 12.
+
+## Open conflict: the `.nost` record identifier
+
+Found while checking what Stage 7 needs. Recorded before acting, as the root `AGENTS.md`
+requires, and the current valid behavior is unchanged.
+
+### The conflict
+
+| Source | What it says |
+| --- | --- |
+| `nostdb-core/src/id.rs` | a record identifier's textual form is a two-character kind prefix followed by exactly 26 Crockford base32 characters |
+| `nostdb-spec/docs/NOST_LANGUAGE.md` section 5.3 | `id` "carries the opaque persisted record identifier", and never says what one looks like |
+| `nostdb-spec/grammar/nost.ebnf` line 48 | `id_clause = "id" , string_literal ;`, so any string at all |
+| `nostdb-spec/fixtures/nost/valid` | states `id "n_1"`, `id "e_2"`, `id "m_1"` |
+| `docs/PRD.md` section 11.2 | "A user-authored `.nost` entity **may** declare its opaque ID explicitly" |
+| `nostdb-spec/grammar/nost.ebnf` lines 36, 41, 44 | `id_clause` is mandatory on every module, node, and edge |
+
+Two disagreements follow. The Engine rejects every identifier the published fixtures state:
+`LocalNodeId::from_str("n_1")` is `WrongLength { expected: 26, found: 1 }`, which
+`id::tests::rejects_a_wrong_length_body` already asserts. And the grammar requires an
+identifier the root PRD says a user *may* supply.
+
+### Why nothing has broken yet
+
+The `.nost` tree keeps an identifier as `Spanned<String>` and nothing converts it to a typed
+one, so the parser, the formatter, and every `.nost` fixture pass. The gap is latent.
+
+It stops being latent at `nostdb convert .nostdb/root.nost .nostdb/root.nostdb`, which
+`docs/PRD.md` section 20.3 requires and Stage 7 owns: converting has to turn that string into
+a `LocalNodeId`, and every published valid fixture would be refused.
+
+### Recorded resolutions
+
+1. Complete the language contract: define the textual form as the Engine's, make `id_clause`
+   optional so a hand-authored declaration may omit it, register a code for a malformed
+   identifier, and restate the fixtures. This is what the Stage 3 finding asked for, and it
+   keeps one form across implementations.
+2. Define a `.nost` identifier as any non-empty string and have the Engine map it to a minted
+   record identity. This keeps hand-authoring easy but introduces a second identity concept
+   alongside the opaque 16-byte one, which `docs/PRD.md` section 11.2 does not have.
+3. Leave the contract silent and let each implementation choose. Rejected on sight: an
+   identifier a `.nost` file states is read by every implementation, so an unspecified form is
+   exactly the divergence `nostdb-spec` exists to prevent.
+
+Resolution 1 is taken, because `docs/PRD.md` section 11.2 already describes an opaque
+identifier a user *may* declare, and its own illustrative syntax writes one as `"n_01J..."`.
+It lands in Stage 7 increment 1, which is where conversion first needs it.
+
+Constraining the form does invalidate a `.nost` file that stated `id "n_1"`, which version 1
+accepted as a string. That is recorded as completing version 1 rather than bumping it, for the
+same reason the query subset was: the form was never specified, so no implementation could
+have relied on it, and leaving it unspecified is the defect being fixed.
 
 ## Stage 6 increment 3 acceptance criteria
 
