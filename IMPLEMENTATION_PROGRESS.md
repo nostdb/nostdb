@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-26
 
-Current stage: `Stage 6 IN_PROGRESS` (increment 1 of 3 done)
+Current stage: `Stage 6 IN_PROGRESS` (increments 1 and 2 of 3 done)
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification and Engine repositories `nostdb-spec` and `nostdb-core` are
@@ -865,7 +865,7 @@ verifiable on its own, and the later ones depend on the earlier.
 | Increment | Content | Status |
 | --- | --- | --- |
 | 1 | query subset contract in `nostdb-spec`, plus the Cypher lexer and parser for the read subset | DONE |
-| 2 | semantic analysis and read execution over a graph, with the result envelope | not started |
+| 2 | semantic analysis and read execution over a graph | DONE |
 | 3 | write clauses, explicit transactions, and `CALL nostdb.*` procedures | not started |
 
 ### Increment 1 scope
@@ -887,6 +887,59 @@ defining the subset is a prerequisite rather than a parallel task.
 This adds a third specified contract to `nostdb-spec`. A deliberate tripwire test written
 in Stage 2 asserts exactly which contracts are specified, so adding one requires updating
 that expectation, which is the point: a new contract cannot appear unnoticed.
+
+## Stage 6 increment 2 verification
+
+Passed on 2026-07-26 in `nostdb-core` at commit `490ee3a`. Rust command set clean, with
+232 unit tests plus 15 conformance and storage tests.
+
+Queries now run: pattern matching, bounded variable-length traversal, predicates,
+projection, `DISTINCT`, `ORDER BY`, `SKIP`, `LIMIT`, `UNWIND`, and `UNION`.
+
+### Undefined order is tested as a set, not a sequence
+
+The contract promises a row *set* when a query has no `ORDER BY`. The test asserts exactly
+that, comparing sets across runs rather than sequences, so it cannot accidentally lock in
+an incidental order and turn an unspecified behavior into a de facto guarantee.
+
+A total order across value kinds is imposed for `ORDER BY`, because Cypher leaves
+cross-type comparison loose and an ordered query over a mixed column would otherwise not
+be reproducible.
+
+### Three defects found, two of them semantics rather than slips
+
+`WITH ... WHERE` was evaluated before projection, so a predicate naming the alias the
+projection introduced saw it as unbound. Projection now happens first, and the scope for
+both the predicate and the sort keys is the incoming bindings plus the new column names,
+which also keeps `ORDER BY n.age` working next to `ORDER BY alias`.
+
+A failed `OPTIONAL MATCH` kept its row but left the pattern's variables absent, so a later
+`x.name` raised an unbound variable error instead of yielding null. Every variable the
+pattern would have introduced is now bound to null.
+
+`LIMIT -1` failed as a syntax error, because the expression parser had no unary minus.
+Adding it means the query now reports the more useful complaint: the value must not be
+negative.
+
+### Null is not truthy, deliberately
+
+Only `true` passes a predicate. A comparison against null evaluates to null, so a row with
+a missing property simply does not pass, and an unmatched optional row cannot slip through
+a filter. Arithmetic overflow and division by zero yield null rather than panicking.
+
+### Recorded divergence: aggregation
+
+Aggregate functions are refused with `CYPHER_UNSUPPORTED` and a message saying this build
+does not evaluate them. Grouping semantics are the part of aggregation that is easy to get
+subtly wrong, and a wrong grouping returns a plausible number rather than an error, which
+is the failure mode the whole subset discipline exists to avoid. Increment 3 closes it.
+
+### The result envelope stays out of Core for now
+
+`QueryResult` is an in-memory type. The machine-readable envelope with `result_version`,
+summary counts, and structured warnings is a serialization contract, and `result_version`
+is still deferred in `nostdb-spec`. It belongs with the CLI output formats in Stage 7
+rather than being invented here.
 
 ## Stage 6 increment 1 verification
 
