@@ -1183,6 +1183,56 @@ accepted as a string. That is recorded as completing version 1 rather than bumpi
 same reason the query subset was: the form was never specified, so no implementation could
 have relied on it, and leaving it unspecified is the defect being fixed.
 
+## Open conflict: a `.nost` module has nowhere to go in `.nostdb`
+
+Found immediately after the identifier conflict, while starting the conversion work.
+Recorded rather than guessed at, because unlike the identifier form the root PRD points in
+two directions at once.
+
+### The conflict
+
+| Source | What it says |
+| --- | --- |
+| `nostdb-spec/grammar/nost.ebnf` | a document is `{ module_declaration }`, and `module_item = node_declaration \| edge_declaration`, so every node and edge is inside a module |
+| `nostdb-spec/docs/NOST_LANGUAGE.md` section 5.3 | a module carries an `id` and an optional `source`, and "holds nodes and edges" |
+| `nostdb-core/src/encoding.rs` | `Graph` is `nodes`, `edges`, and `links`. There is no module |
+| `nostdb-core/src/container.rs` | fourteen section kinds, and none of them is modules |
+| `docs/PRD.md` section 11.2 | "Analyzed modules receive a persisted `StableModuleId`", a type distinct from a node identifier |
+| `docs/PRD.md` section 17.4 | analyzers extract "packages, modules, files, types, classes, functions, methods, and fields", which are graph records |
+
+Converting `.nost` to `.nostdb` therefore drops each module's identity, name, and source,
+and converting back has nothing to rebuild a module from while the grammar requires one. A
+round trip cannot be faithful in either direction, and `docs/PRD.md` section 30.2 requires
+both.
+
+The two PRD sections disagree about what a module *is*. Section 11.2 gives it an identity
+type of its own, which is what a thing that is not a node looks like. Section 17.4 lists it
+among the records an analyzer extracts, which is what a node looks like.
+
+### Recorded resolutions
+
+1. **A module is a first-class record.** `Graph` gains modules, each with its
+   `StableModuleId`, name, and optional source locator, and a node or edge records which
+   module it belongs to. A section kind is promoted for them, which is a
+   `nostdb_format_version` change. Faithful in both directions, and it keeps
+   `StableModuleId` meaning what section 11.2 says. A record created by a Cypher `CREATE`
+   belongs to no module, so membership is optional and export needs a home for the rest.
+2. **A module is a node.** A module declaration converts to a Node carrying the module's
+   name and source, and membership becomes an Edge. No format change, and it matches
+   section 17.4, which already treats a module as an extracted record; a query can then ask
+   about modules with no new syntax. `StableModuleId` becomes redundant, or a module node
+   carries it as a property, which is the part that grates: an identity in a property is
+   exactly what section 11.2 says a locator must not be.
+3. **A module is lexical only.** The block groups declarations and carries nothing.
+   Rejected on sight: it makes a documented round trip lossy.
+
+Resolution 1 is the better fit for the model as built, and resolution 2 is the smaller
+change and the more queryable result. The decision belongs to whoever owns the product
+shape, so it is recorded and left open rather than taken here.
+
+Stage 7 increment 1 is blocked on it. Nothing in the workspace depends on the answer yet,
+and the current valid behavior is unchanged.
+
 ## Stage 6 increment 3 acceptance criteria
 
 - Every clause the query subset contract declares is accepted and executed, with the single
