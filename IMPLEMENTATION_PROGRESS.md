@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-26
 
-Current stage: `Stage 2 DONE` (`Stage 3 PENDING`)
+Current stage: `Stage 3 DONE` (`Stage 4 PENDING`)
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification and Engine repositories `nostdb-spec` and `nostdb-core` are
@@ -24,7 +24,7 @@ requirements.
 | 0 | DONE | Root workspace documents, instructions, license, and verification | none |
 | 1 | DONE | Connect and pin the specification and Engine repositories `nostdb-spec` and `nostdb-core` | exact URLs and explicit remote authorization |
 | 2 | DONE | Executable `.nost` and `.nostdb` specification foundation | Stage 1 |
-| 3 | PENDING | Core model and typed change contracts | Stage 2 |
+| 3 | DONE | Core model and typed change contracts | Stage 2 |
 | 4 | PENDING | Storage and transaction foundation | Stage 3 |
 | 5 | PENDING | Parser, sync, and deterministic analysis foundation | Stage 4 |
 | 6 | PENDING | openCypher subset and query execution | Stage 5 |
@@ -647,4 +647,160 @@ so an implementation can already refuse a corrupt or unsupported file; how a nod
 record is laid out inside the `nodes` section is specified when the model lands in
 Stage 3.
 
-Stage 3 was not started in this request.
+## Stage 3 scope
+
+Implement the graph model and the typed change contract in `nostdb-core`, as data
+types with validated construction and explicit error types. This Stage adds no
+behavior beyond validation.
+
+In scope:
+
+- opaque record identifiers, with a documented textual representation;
+- the canonical source locator;
+- validated names: label, relation, property key, declaration name, link alias;
+- property values and scalars, honoring the no-null and finite-number rules;
+- `Node`, `Edge`, `NodeReference`, and `ScopedNodeId`, with two non-null endpoints
+  enforced by the type rather than by a check;
+- `Contribution`, `Owner`, and `ContributionKey`;
+- `Evidence`, `EvidenceMethod`, and `Confidence` with a validated score range;
+- `SourceRange`;
+- `Diagnostic`, `Severity`, and a typed diagnostic code aligned with the
+  `nostdb-spec` registry;
+- `GraphChangeSet`, `GraphOperation`, the drafts, and shape validation;
+- `BuildCoverage` and its states;
+- typed error types with rustdoc.
+
+### Deferred out of Stage 3
+
+- storage, transactions, and the journal, which are Stage 4;
+- the `.nost` parser, CST, formatter, synchronization, and analyzers, which are
+  Stage 5;
+- the query engine, which is Stage 6;
+- identifier minting, because choosing an entropy source and an ordering policy
+  belongs with storage in Stage 4. Stage 3 provides construction from bytes and
+  the textual round trip.
+
+## Stage 3 acceptance criteria
+
+- `nostdb-core` declares `#![forbid(unsafe_code)]`.
+- Every public item carries rustdoc.
+- Public fallible operations return explicit error types. The crate does not panic
+  for ordinary errors and does not write to stdout.
+- A stored null is unrepresentable in `PropertyValue`.
+- A non-finite float is rejected at construction.
+- A confidence score outside `0.0..=1.0` is rejected at construction.
+- An `Edge` cannot be constructed with a missing endpoint.
+- Names are validated against the `.nost` identifier rules, and a reserved word is
+  rejected where the language contract reserves it.
+- Every diagnostic code the crate can emit exists in the `nostdb-spec` registry,
+  proven by a root integration check rather than by inspection.
+- `cargo fmt --check`, `cargo check`, `cargo clippy --all-targets --all-features
+  -- -D warnings`, and `cargo test --all-targets --all-features` pass.
+- Child CI is green, and root CI is green over the new pin.
+- No CLI, daemon, network interface, storage engine, parser, or query engine is
+  added to `nostdb-core`.
+
+## Stage 3 verification
+
+Passed on 2026-07-26 in `nostdb-core` at commit `f1f712f`.
+
+Rust command set, all clean:
+
+- `cargo fmt --check`
+- `cargo check --all-targets --all-features`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test --all-targets --all-features`, 71 tests passing
+
+Repository and workspace:
+
+- `bash -n scripts/verify-repository.sh`
+- `./scripts/verify-repository.sh`, which now also runs the Rust command set and
+  the ownership-boundary checks
+- `./scripts/verify-workspace.sh` in the root, including the new cross-repository
+  diagnostic check
+- the exact `git submodule foreach` command from the root workflow, across both
+  children
+- the child workflow parsed as YAML
+
+### How each invariant is enforced
+
+| Invariant | Mechanism |
+| --- | --- |
+| stored null is unrepresentable | `PropertyValue` has no null variant |
+| a float property is finite | `FiniteF64` cannot hold an infinity or a NaN |
+| a confidence score is within `0.0..=1.0` | `Score` rejects anything else |
+| an Edge has two non-null endpoints | `Edge` endpoints are `NodeReference`, not `Option` |
+| a name is a valid identifier | `Label`, `RelationName`, `PropertyKey`, `DeclarationName`, and `LinkAlias` apply the UAX #31 rule and reject reserved words |
+| a datetime is RFC 3339 | `DateTime` validates shape and component ranges |
+| a link identity is its locator | `CanonicalSourceLocator` is the only link identity; no generated identifier exists |
+| an analyzer replaces only its own work | `ContributionKey` pairs owner with source unit, and change-set validation rejects removing another owner's contribution |
+| a Node has at least one label, a key is not set twice | reported by `Node::violations` and change-set validation, so a diagnostic can carry a source range |
+| rustdoc on every public item | `missing_docs = "deny"` in `Cargo.toml` |
+| documented error contracts | `clippy::missing_errors_doc = "deny"` |
+| no unsafe code | `#![forbid(unsafe_code)]` |
+| no command surface or listener in the Engine | the verifier rejects `fn main`, a listener type, and `src/bin` |
+
+The first eight are enforced by types, so the invalid state cannot be built. The
+ninth is reported rather than refused, because the Engine has to surface it as a
+diagnostic against real source and refusing construction would discard the position
+a caller needs.
+
+### Cross-repository diagnostic check
+
+A diagnostic code is a stable public identifier, and the vocabulary `nostdb-core`
+recognizes must equal the registry `nostdb-spec` publishes. The two are separate
+repositories pinned together, so `scripts/verify-workspace.sh` now compares them
+directly. Both sides currently list the same fifteen codes.
+
+The check was proven in both drift directions: removing a code from the registry,
+and renaming one in the Engine, each fail with the differing code named. It also
+deliberately excludes the Engine file's test section, which names an unregistered
+code on purpose to prove an unknown code is rejected rather than guessed.
+
+While wiring that check, its failure output listed thirteen phantom differences,
+because `comm` ran under the default locale while its inputs were sorted with
+`LC_ALL=C`. The exit status was already correct, but the message would have sent a
+reader chasing differences that did not exist, so the collation was fixed.
+
+### Recorded decision: typed errors instead of unregistered codes
+
+Change-set validation returns typed errors rather than diagnostics. Several
+conditions it detects, such as an empty change set or a placeholder replaced by
+itself, have no registered diagnostic code, because `change_set_version` is a
+reserved but unauthored contract.
+
+Inventing codes here would put the Engine's vocabulary ahead of the published
+registry and would then fail the cross-repository check. Reporting them as typed
+errors is also the more accurate description: a malformed change set is a caller
+contract violation, not a finding about analyzed content.
+
+When `change_set_version` is authored, those conditions can be promoted to
+registered codes.
+
+### Recorded finding: the identifier textual form belongs in the contract
+
+`nostdb-core` defines the textual form of a record identifier as a two-character
+kind prefix followed by 26 Crockford base32 characters, matching the shape the root
+PRD examples show.
+
+A `.nost` file may state a record identifier explicitly, so any implementation
+reading that file needs the same string-to-bytes mapping. That makes this a
+cross-implementation contract rather than an Engine detail, and it should be
+absorbed into the `.nost` language contract in `nostdb-spec`. It is recorded here
+rather than added silently, because expanding a contract that Stage 2 already closed
+is a decision, not a detail.
+
+### Deferred out of Stage 3
+
+- storage, transactions, and the journal, which are Stage 4;
+- the `.nost` parser, CST, formatter, synchronization, and analyzers, which are
+  Stage 5;
+- the query engine, which is Stage 6;
+- identifier minting, because the entropy source and any ordering guarantee are
+  storage decisions;
+- `tracing` was not added as a dependency. The root contract requires a library to
+  log through `tracing` rather than stdout, which constrains how it logs; a pure
+  data-model crate has nothing to log yet, and adding an unused dependency would
+  contradict the dependency-review rule.
+
+Stage 4 was not started in this request.

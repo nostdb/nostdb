@@ -157,6 +157,49 @@ if [ -f .gitmodules ]; then
   done < <(git config --file .gitmodules --get-regexp '^submodule\..*\.url$')
 fi
 
+# Cross-repository integration check.
+#
+# A diagnostic code is a stable public identifier. The vocabulary nostdb-core
+# recognizes and the registry nostdb-spec publishes must match exactly, and they
+# live in separate repositories pinned together, so this is the only place that can
+# hold them together. Matching them by inspection would drift on the first change.
+#
+# The core file's test section is excluded deliberately: it names an unregistered
+# code on purpose, to prove an unknown code is rejected rather than guessed.
+core_diagnostics="nostdb-core/src/diagnostic.rs"
+spec_registry="nostdb-spec/diagnostics.json"
+
+if [ -f "$core_diagnostics" ] && [ -f "$spec_registry" ]; then
+  core_codes=$(
+    sed '/#\[cfg(test)\]/,$d' "$core_diagnostics" |
+      grep -oE '"NOST[A-Z_]+"' | tr -d '"' | LC_ALL=C sort -u
+  )
+  spec_codes=$(
+    grep -oE '"code": *"[A-Z_]+"' "$spec_registry" |
+      sed 's/.*"\([A-Z_]*\)"$/\1/' | LC_ALL=C sort -u
+  )
+
+  if [ -z "$core_codes" ]; then
+    echo "extracted no diagnostic codes from $core_diagnostics" >&2
+    exit 1
+  fi
+  if [ -z "$spec_codes" ]; then
+    echo "extracted no diagnostic codes from $spec_registry" >&2
+    exit 1
+  fi
+
+  if [ "$core_codes" != "$spec_codes" ]; then
+    echo "the nostdb-core diagnostic vocabulary and the nostdb-spec registry differ" >&2
+    # comm must collate the same way the lists were sorted, or it reports every
+    # line as unique and sends the reader chasing differences that do not exist.
+    echo "registered in nostdb-core but not in nostdb-spec:" >&2
+    LC_ALL=C comm -23 <(printf '%s\n' "$core_codes") <(printf '%s\n' "$spec_codes") >&2
+    echo "registered in nostdb-spec but not in nostdb-core:" >&2
+    LC_ALL=C comm -13 <(printf '%s\n' "$core_codes") <(printf '%s\n' "$spec_codes") >&2
+    exit 1
+  fi
+fi
+
 git diff --check
 
 echo "workspace verification passed"
