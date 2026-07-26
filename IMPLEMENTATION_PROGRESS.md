@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-26
 
-Current stage: `Stage 5 IN_PROGRESS` (increment 1 of 3)
+Current stage: `Stage 5 IN_PROGRESS` (increments 1 and 2 of 3 done)
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification and Engine repositories `nostdb-spec` and `nostdb-core` are
@@ -857,6 +857,55 @@ carries opaque section payloads until the encoding contract exists.
 - No conformance fixture is copied into `nostdb-core`.
 - Child CI is green, and root CI is green over the new pin.
 
+## Stage 5 increment 2 verification
+
+Passed on 2026-07-26 in `nostdb-core` at commit `ef53474`.
+
+Rust command set all clean, with 175 unit tests, 3 container conformance tests, 4
+`.nost` conformance tests, and 5 on-disk graph storage tests.
+
+This closes the payload gap carried since Stage 4. A graph now round-trips through a
+real `.nostdb` file: create, commit, close, reopen, read back identical.
+
+### Decoding is validation
+
+Every decoded value is rebuilt through the same typed constructors the model uses, so a
+corrupt or hostile container cannot produce a model that breaks an invariant. A stored
+label goes through `Label` and a reserved word is refused; a stored score goes through
+`Score` and a value outside `0.0..=1.0` is refused; a stored timestamp goes through
+`DateTime`. The result is an error, never an invalid graph.
+
+Every count is checked against the bytes that remain before anything is allocated, so a
+corrupt length cannot drive a large allocation. A payload with bytes left after its last
+record is refused rather than ignored, because trailing data would be a place to hide
+content a reader never validates.
+
+### The mutation test asserts a property, not the absence of a crash
+
+Flipping every byte of every encoded section and re-decoding proves more than "no
+panic": when decoding succeeds, the decoded graph is re-encoded and decoded again and
+must be identical. That catches encoder and decoder asymmetry, which a panic-only check
+would miss entirely.
+
+### Recorded decision: properties are inlined
+
+Properties and contributions are encoded inside their node or edge rather than in the
+`properties`, `evidence`, and `contributions` sections the container reserves.
+
+Nothing in the container contract requires a kind to be present, and inlining keeps a
+record readable in one pass. Those kinds stay reserved for a layout that would justify
+them, such as a columnar store supporting indexed property search, which is a
+performance decision that needs a benchmark rather than a guess.
+
+A section holding no records is omitted entirely, so an empty graph produces a container
+with only a string table.
+
+### Byte-identical commits
+
+The same graph content committed at the same generation produces byte-identical files,
+which is tested on disk. That is what lets synchronization compare generations and
+content digests rather than wall-clock time, as the root PRD section 14 requires.
+
 ## Stage 5 increment 1 verification
 
 Passed on 2026-07-26 in `nostdb-core` at commit `49b33e2`.
@@ -927,9 +976,9 @@ to `nostdb-spec`.
 
 ### Remaining Stage 5 work
 
-Increment 2 is section payload encodings, so a graph round-trips through a container.
-Increment 3 is the synchronization state machine and the deterministic analyzer
-capability boundary. Stage 5 stays `IN_PROGRESS`.
+Increment 2 landed in the same session; see its verification above. Increment 3 is the
+synchronization state machine and the deterministic analyzer capability boundary. Stage 5
+stays `IN_PROGRESS`.
 
 ## Stage 4 verification
 
@@ -1029,8 +1078,8 @@ are done. The Stage table is unchanged; only the order of work inside it is reco
 
 | Increment | Content | Status |
 | --- | --- | --- |
-| 1 | `.nost` lexer, comment-preserving CST, parser, semantic validation, canonical formatter | this request |
-| 2 | section payload encodings, so a graph round-trips through a container | not started |
+| 1 | `.nost` lexer, comment-preserving CST, parser, semantic validation, canonical formatter | DONE |
+| 2 | section payload encodings, so a graph round-trips through a container | DONE |
 | 3 | synchronization state machine and the deterministic analyzer capability boundary | not started |
 
 Increment 1 is first because everything else in Stage 5 depends on it: an encoding has
