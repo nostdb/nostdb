@@ -36,11 +36,11 @@ The organization is `nostdb`, so every child locator is
 Connected and pinned to an exact commit:
 
 - `nostdb-spec/`
+- `nostdb-core/`
 
 Not connected, each blocked on explicit authorization to create its remote
 repository:
 
-- `nostdb-core/`
 - `nostdb-cli/`
 - `nostdb-server/`
 - `nostdb-provider-github/`

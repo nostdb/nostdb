@@ -1,3 +1,6 @@
 [submodule "nostdb-spec"]
 	path = nostdb-spec
 	url = https://github.com/nostdb/nostdb-spec.git
+[submodule "nostdb-core"]
+	path = nostdb-core
+	url = https://github.com/nostdb/nostdb-core.git

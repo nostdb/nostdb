@@ -2,12 +2,13 @@
 
 Last updated: 2026-07-26
 
-Current stage: `Stage 1 IN_PROGRESS` (1 of 9 child repositories connected)
+Current stage: `Stage 1 IN_PROGRESS` (2 of 9 child repositories connected)
 
-Current milestone: The clean-slate root workspace is initialized, and the first
-child repository `nostdb-spec` is connected as an exact-commit submodule in the
-authorized `nostdb` GitHub organization. The remaining eight child repositories
-are not yet authorized for creation.
+Current milestone: The clean-slate root workspace is initialized, and
+`nostdb-spec` and `nostdb-core` are connected as exact-commit submodules in the
+authorized `nostdb` GitHub organization. Root and child CI both verify the pinned
+commit set. The remaining seven child repositories are not yet authorized for
+creation.
 
 ## Authority
 
@@ -95,9 +96,9 @@ origin  git@github.com:nostdb/nostdb.git
 `nostdb` is a GitHub Organization. Each child locator is therefore
 `git@github.com:nostdb/<repository>.git`.
 
-### Authorized scope for this request
+### Authorized scope: nostdb-spec
 
-Authorization covered `nostdb-spec` only:
+The first increment's authorization covered `nostdb-spec` only:
 
 - create `nostdb-spec` as a public repository in the `nostdb` organization;
 - push its initial commit;
@@ -112,11 +113,10 @@ authoring those is Stage 2.
 
 ### Still blocked
 
-These eight children remain uncreated and unpinned pending explicit
+These seven children remain uncreated and unpinned pending explicit
 authorization for each remote repository creation:
 
 ```text
-nostdb-core
 nostdb-cli
 nostdb-server
 nostdb-provider-github
@@ -169,6 +169,7 @@ Root workspace, after pinning:
 Recorded pin:
 
 ```text
+nostdb-core  661d035ae6a6b540200f35c21ed182b861f1ff79
 nostdb-spec  725b761a9104b591633427bdba21b735217bdf77
 ```
 
@@ -299,23 +300,73 @@ Passed on 2026-07-26:
 
 Root CI has not executed. See the billing blocker below.
 
-### Blocked: root CI cannot start
+### Resolved: root CI billing blocker
 
-The child workflow ran green immediately. The root workflow has never executed,
-because GitHub refused to start the job:
+Two root pushes recorded failed runs because GitHub refused to start the job:
 
 ```text
 The job was not started because recent account payments have failed or your
 spending limit needs to be increased.
 ```
 
-`nostdb/nostdb` is private, so its Actions minutes are billed, while the public
-`nostdb/nostdb-spec` runs free. The workflow is therefore unexercised rather than
-broken, and both of its run steps pass when simulated locally.
+`nostdb/nostdb` was private, so its Actions minutes were billed, while the public
+`nostdb/nostdb-spec` ran free. The workflow was unexercised rather than broken.
 
-Resolving this needs an account decision rather than a code change. Either
-restore billing or raise the spending limit for the `nostdb` organization, or
-make the root repository public so its Actions run free. Until one of those
-happens, the recursive-checkout requirement in `docs/PRD.md` sections 8.1 and
-30.10 is implemented but unverified in CI, and every root push will record a
-failed run.
+Making the root repository public was authorized, and Actions then ran free.
+Run `30196084203` passed: it checked out `nostdb-spec` at its exact pin, passed
+`scripts/verify-workspace.sh`, and passed the child verifier through
+`git submodule foreach`. The `docs/PRD.md` sections 8.1 and 30.10 CI requirement
+is now verified rather than only implemented.
+
+The two earlier failed runs stay in the history as a record of the blocked state.
+Neither was a workflow defect.
+
+## Stage 1 continuation: nostdb-core
+
+Stage 1 stays `IN_PROGRESS` at 2 of 9 children.
+
+### Authorized scope: nostdb-core and root visibility
+
+- create `nostdb-core` as a public repository in the `nostdb` organization;
+- push its initial commit;
+- pin it as a root submodule;
+- make `nostdb/nostdb` public so root Actions run free.
+
+`nostdb-core` is licensed SSPL-1.0 and is described as source-available, not open
+source. `LICENSE` is the verbatim SPDX text for `SSPL-1.0`: 557 lines,
+`sha256 3fac2f3a7404f72330ae38e3a1d2632ede9ad3fbdb0d471d04c33f2c1d0e94ca`.
+
+Its initial commit is scaffolding only. It carries no model, storage, parser,
+analyzer, provider, or query code, because that work belongs to Stage 3 and later.
+Its `AGENTS.md` does record the Engine ownership boundary and the product
+invariants the Engine must never break, so later Stages inherit them.
+
+### Pre-publication review
+
+Making a private repository public exposes its whole history irreversibly, so the
+root history was reviewed before the visibility change:
+
+- every path ever committed was enumerated, and all are documentation, scripts, or
+  Skill metadata;
+- every commit was scanned for credential patterns, covering GitHub tokens, AWS
+  access keys, PEM private-key headers, Slack tokens, certificates, and bearer
+  tokens, with no match;
+- `skills-lock.json` holds only a public source path and a content digest;
+- `.claude/skills` is a symlink to `../.agents/skills`.
+
+### nostdb-core verification
+
+Passed on 2026-07-26:
+
+- `bash -n scripts/verify-repository.sh`
+- `./scripts/verify-repository.sh`
+- `CLAUDE.md` committed as a symlink, Git mode `120000`, and the verifier
+  committed executable, Git mode `100755`
+- the child workflow parsed as YAML with a single `contents: read` permission and
+  the pinned `actions/checkout` commit
+- SSPL section 13, `Offering the Program as a Service`, confirmed present, which
+  the verifier now requires so a truncated or substituted license is rejected
+- `./scripts/verify-workspace.sh` in the root with both submodules pinned, which
+  also exercises the new pin-legitimacy checks against a second entry
+- the exact `git submodule foreach` command from the root workflow across both
+  children

@@ -10,11 +10,11 @@ workspace. Runtime implementation does not belong in the root repository.
 
 ## Current status
 
-The root workspace is initialized and the first implementation repository,
-`nostdb-spec`, is connected as a submodule pinned to an exact commit. No legacy
-runtime code has been copied into this repository.
+The root workspace is initialized, and `nostdb-spec` and `nostdb-core` are
+connected as submodules pinned to exact commits. No legacy runtime code has been
+copied into this repository, and neither child carries implementation code yet.
 
-The remaining eight repositories will be created and connected only after each
+The remaining seven repositories will be created and connected only after each
 one is explicitly authorized.
 
 ## Start here
@@ -32,7 +32,7 @@ Read in this order:
 ```text
 nostdb/
 ├── nostdb-spec/              # connected and pinned
-├── nostdb-core/              # not yet authorized
+├── nostdb-core/              # connected and pinned
 ├── nostdb-cli/               # not yet authorized
 ├── nostdb-server/            # not yet authorized
 ├── nostdb-provider-github/   # not yet authorized
@@ -57,6 +57,9 @@ workspace.
 ```bash
 ./scripts/verify-workspace.sh
 ```
+
+CI runs the same verifier over a recursive checkout of the pinned commit set,
+then runs each connected child's `scripts/verify-repository.sh`.
 
 ## License
 
