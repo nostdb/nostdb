@@ -38,8 +38,8 @@ Connected and pinned to an exact commit:
 - `nostdb-spec/`
 - `nostdb-core/`
 
-Not connected, each blocked on explicit authorization to create its remote
-repository:
+Not connected. Each is a named dependency of the Stage that first needs it, and
+creating it still requires explicit authorization at that time:
 
 - `nostdb-cli/`
 - `nostdb-server/`

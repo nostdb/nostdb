@@ -2,13 +2,14 @@
 
 Last updated: 2026-07-26
 
-Current stage: `Stage 1 IN_PROGRESS` (2 of 9 child repositories connected)
+Current stage: `Stage 1 DONE` (`Stage 2 PENDING`)
 
-Current milestone: The clean-slate root workspace is initialized, and
-`nostdb-spec` and `nostdb-core` are connected as exact-commit submodules in the
-authorized `nostdb` GitHub organization. Root and child CI both verify the pinned
-commit set. The remaining seven child repositories are not yet authorized for
-creation.
+Current milestone: The clean-slate root workspace is initialized, and the
+specification and Engine repositories `nostdb-spec` and `nostdb-core` are
+connected as exact-commit submodules in the `nostdb` GitHub organization. Root and
+child CI verify the pinned commit set. Each remaining child repository is now a
+named dependency of the Stage that first needs it rather than a blocker on all
+implementation.
 
 ## Authority
 
@@ -21,18 +22,22 @@ requirements.
 | Stage | Status | Scope | Dependency |
 | --- | --- | --- | --- |
 | 0 | DONE | Root workspace documents, instructions, license, and verification | none |
-| 1 | IN_PROGRESS | Create/connect and pin child repositories as submodules | exact URLs and explicit remote authorization |
+| 1 | DONE | Connect and pin the specification and Engine repositories `nostdb-spec` and `nostdb-core` | exact URLs and explicit remote authorization |
 | 2 | PENDING | Executable `.nost` and `.nostdb` specification foundation | Stage 1 |
 | 3 | PENDING | Core model and typed change contracts | Stage 2 |
 | 4 | PENDING | Storage and transaction foundation | Stage 3 |
 | 5 | PENDING | Parser, sync, and deterministic analysis foundation | Stage 4 |
 | 6 | PENDING | openCypher subset and query execution | Stage 5 |
-| 7 | PENDING | CLI, REPL, conversion, and link management | Stage 6 |
-| 8 | PENDING | Per-user local daemon | Stage 7 |
-| 9 | PENDING | GitHub provider | Stage 7 |
-| 10 | PENDING | Skills and AI enrichment workflow | Stages 7 and 9 |
-| 11 | PENDING | Plugin manager and WebGPU reference viewer | Stage 7 |
-| 12 | PENDING | npm, Homebrew, and GitHub distribution gates | Stages 8 through 11 |
+| 7 | PENDING | CLI, REPL, conversion, and link management | Stage 6, plus connected `nostdb-cli` |
+| 8 | PENDING | Per-user local daemon | Stage 7, plus connected `nostdb-server` |
+| 9 | PENDING | GitHub provider | Stage 7, plus connected `nostdb-provider-github` |
+| 10 | PENDING | Skills and AI enrichment workflow | Stages 7 and 9, plus connected `skills` |
+| 11 | PENDING | Plugin manager and WebGPU reference viewer | Stage 7, plus connected `plugins` |
+| 12 | PENDING | npm, Homebrew, and GitHub distribution gates | Stages 8 through 11, plus connected `nostdb-distribution` and `homebrew-tap` |
+
+A Stage whose dependency names a child repository cannot start until that
+repository is created, connected, and pinned, and creating it still requires
+explicit user authorization at that time.
 
 Only one Stage may be `IN_PROGRESS`. Do not continue automatically to the next
 Stage in the same request.
@@ -77,12 +82,15 @@ Passed on 2026-07-26:
 
 ## Stage 1 scope
 
-Connect every intended child repository from `docs/REPOSITORIES.md` as a direct
-child submodule pinned to an exact commit.
+Connect the specification and Engine repositories as direct child submodules
+pinned to exact commits:
 
-Full Stage 1 requires all nine children: `nostdb-spec`, `nostdb-core`,
-`nostdb-cli`, `nostdb-server`, `nostdb-provider-github`, `nostdb-distribution`,
-`homebrew-tap`, `skills`, and `plugins`.
+- `nostdb-spec`
+- `nostdb-core`
+
+This scope was narrowed from all nine children after the original decomposition
+was found to block every implementation Stage on repositories that no early Stage
+needs. See `Resolved conflict: Stage granularity` at the end of this document.
 
 ### Resolved dependency: repository URLs
 
@@ -111,38 +119,44 @@ and a non-mutating repository verifier. It deliberately contains no grammar,
 format contract, protocol schema, example, or conformance fixture, because
 authoring those is Stage 2.
 
-### Still blocked
+### Deferred to the Stage that first needs them
 
-These seven children remain uncreated and unpinned pending explicit
-authorization for each remote repository creation:
+These seven children are uncreated and unpinned. Each is now a named dependency
+of a later Stage rather than of Stage 1:
 
-```text
-nostdb-cli
-nostdb-server
-nostdb-provider-github
-nostdb-distribution
-homebrew-tap
-skills
-plugins
-```
+| Child | Required by |
+| --- | --- |
+| `nostdb-cli` | Stage 7 |
+| `nostdb-server` | Stage 8 |
+| `nostdb-provider-github` | Stage 9 |
+| `skills` | Stage 10 |
+| `plugins` | Stage 11 |
+| `nostdb-distribution` | Stage 12 |
+| `homebrew-tap` | Stage 12 |
 
-Stage 1 therefore stays `IN_PROGRESS` and MUST NOT be marked `DONE` until every
-child is connected and pinned.
+Creating each one still requires explicit user authorization, and the owning Stage
+cannot start until its repository is connected and pinned. Deferring the
+connection does not weaken that boundary; it only stops seven distribution-time
+repositories from blocking specification and Engine work.
 
 ## Stage 1 acceptance criteria
 
-- Every intended child repository exists with a real remote URL and at least one
-  commit.
-- `.gitmodules` records each child at its normative directory name.
-- Every gitlink pins an exact commit, not a floating branch.
-- Each child carries its own `README.md`, `AGENTS.md`, and PRD-mandated license.
-- No child `AGENTS.md` weakens a root product, safety, or ownership boundary.
-- No placeholder URL or local-path gitlink is present.
-- The root workspace verifier passes with `.gitmodules` present.
-- `git clone --recurse-submodules` populates every pinned child.
-- No runtime implementation is added to the root repository.
+Every criterion applies to the two children in scope.
 
-Criteria met so far apply to `nostdb-spec` only.
+| Criterion | Met by |
+| --- | --- |
+| Each in-scope child exists with a real remote URL and at least one commit | `nostdb-spec` at `725b761a`, `nostdb-core` at `661d035a` |
+| `.gitmodules` records each child at its normative directory name | verifier rejects a non-normative path |
+| Every gitlink pins an exact commit, not a floating branch | verifier rejects a recorded branch |
+| Each child carries its own `README.md`, `AGENTS.md`, and PRD-mandated license | Apache-2.0 for `nostdb-spec`, SSPL-1.0 for `nostdb-core`, both verifier-checked |
+| No child `AGENTS.md` weakens a root product, safety, or ownership boundary | each states the root contract wins on conflict and only narrows it |
+| No placeholder URL or local-path gitlink is present | verifier rejects both, plus orphan gitlinks |
+| The root workspace verifier passes with `.gitmodules` present | passes with two pinned children |
+| `git clone --recurse-submodules` populates every pinned child | proven from the public HTTPS remote with no SSH keys |
+| No runtime implementation is added to the root repository | verifier rejects runtime manifests and sources |
+| Root CI verifies the exact pinned commit set | run `30196287155` checked out both pins and passed all three verifiers |
+
+Stage 1 is `DONE` for this scope. Stage 2 was not started in the same request.
 
 ## Stage 1 verification
 
@@ -214,9 +228,10 @@ not started.
 
 ## Stage 1 continuation: enforcement and CI
 
-Stage 1 stays `IN_PROGRESS`. This increment connected no additional child,
-because creating one is still unauthorized. It closed the gap between the Stage 1
-acceptance criteria and what the workspace could actually detect.
+Stage 1 remained `IN_PROGRESS` through this increment, which connected no
+additional child because creating one was not yet authorized. It closed the gap
+between the Stage 1 acceptance criteria and what the workspace could actually
+detect.
 
 ### Continuous integration
 
@@ -323,7 +338,8 @@ Neither was a workflow defect.
 
 ## Stage 1 continuation: nostdb-core
 
-Stage 1 stays `IN_PROGRESS` at 2 of 9 children.
+Stage 1 remained `IN_PROGRESS` after this increment, at 2 of the 9 children the
+scope then required.
 
 ### Authorized scope: nostdb-core and root visibility
 
@@ -381,8 +397,8 @@ requirement that root CI verify the exact pinned commit set.
 
 ## Stage 1 continuation: root boundary enforcement
 
-Stage 1 stays `IN_PROGRESS` at 2 of 9. This increment created nothing remote,
-because the seven remaining children are still unauthorized. It enforced two
+Stage 1 remained `IN_PROGRESS` through this increment, which created nothing
+remote because the seven remaining children were not authorized. It enforced two
 Stage 1 acceptance criteria that nothing previously checked.
 
 ### No runtime implementation in the root
@@ -421,27 +437,38 @@ shell and YAML orchestration files are not false positives.
 Counting the earlier increment, the workspace verifier now has fourteen proven
 rejections.
 
-## Recorded conflict: Stage granularity blocks all implementation
+## Resolved conflict: Stage granularity
 
-The root `AGENTS.md` requires recording a contract conflict here and keeping the
-current valid behavior unchanged until the owning contract is resolved. This is
-such a conflict, so the Stage table is deliberately left unamended.
+### The conflict
 
-The Stage table makes Stage 2 depend on Stage 1, and the Stage 1 scope is every
-one of the nine child repositories. Read strictly, no specification or Engine work
-can begin until seven more repositories exist, including `homebrew-tap`,
-`plugins`, `skills`, and `nostdb-distribution`, which no Stage needs before
-Stages 10 through 12.
+The original Stage table made Stage 2 depend on Stage 1, and the Stage 1 scope was
+every one of the nine child repositories. Read strictly, no specification or Engine
+work could begin until seven more repositories existed, including `homebrew-tap`,
+`plugins`, `skills`, and `nostdb-distribution`, which no Stage needs before Stages
+10 through 12.
 
-Stage 2 in fact depends only on `nostdb-spec`, connected in the first increment.
-Stages 3 through 6 depend only on `nostdb-core`, connected in the second.
+Stage 2 in fact depends only on `nostdb-spec`, and Stages 3 through 6 depend only
+on `nostdb-core`. Both were already connected and verified.
 
-Two resolutions exist, and both are the user's decision:
+The conflict was recorded first and the Stage table left unamended, as the root
+`AGENTS.md` requires, until the owning decision was made.
 
-1. authorize the remaining seven children, which closes Stage 1 as written;
-2. narrow the Stage 1 scope to the children that later Stages actually depend on,
-   and move the distribution-time repositories into their own late Stage.
+### The resolution
 
-Until one is chosen, Stage 1 stays `IN_PROGRESS`, Stage 2 stays `PENDING` with an
-unmet dependency, and no Stage is started. No part of the workspace is blocked by
-a defect.
+The user selected resolution 2 of the two recorded options: narrow the Stage 1
+scope to the specification and Engine repositories, and make every remaining child
+a named dependency of the Stage that first needs it.
+
+Applied changes:
+
+- Stage 1 scope is now `nostdb-spec` and `nostdb-core`, and Stage 1 is `DONE`.
+- Stages 7 through 12 each name the child repository they require.
+- Creating each remaining repository still requires explicit authorization, and
+  the owning Stage cannot start until that repository is connected and pinned.
+
+No product invariant, safety boundary, or ownership boundary changed. The
+authorization gate moved to the point of need rather than being removed, and no
+placeholder or local-path gitlink was introduced for a deferred child.
+
+The alternative resolution, authorizing all seven children at once, remains
+available and would satisfy several later dependencies in a single step.
