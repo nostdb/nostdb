@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-26
 
-Current stage: `Stage 5 DONE` (`Stage 6 PENDING`)
+Current stage: `Stage 6 IN_PROGRESS` (increment 1 of 3 done)
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification and Engine repositories `nostdb-spec` and `nostdb-core` are
@@ -27,7 +27,7 @@ requirements.
 | 3 | DONE | Core model and typed change contracts | Stage 2 |
 | 4 | DONE | Storage and transaction foundation | Stage 3 |
 | 5 | DONE | Parser, sync, and deterministic analysis foundation | Stage 4 |
-| 6 | PENDING | openCypher subset and query execution | Stage 5 |
+| 6 | IN_PROGRESS | openCypher subset and query execution | Stage 5 |
 | 7 | PENDING | CLI, REPL, conversion, and link management | Stage 6, plus connected `nostdb-cli` |
 | 8 | PENDING | Per-user local daemon | Stage 7, plus connected `nostdb-server` |
 | 9 | PENDING | GitHub provider | Stage 7, plus connected `nostdb-provider-github` |
@@ -856,6 +856,104 @@ carries opaque section payloads until the encoding contract exists.
   -- -D warnings`, and `cargo test --all-targets --all-features` pass.
 - No conformance fixture is copied into `nostdb-core`.
 - Child CI is green, and root CI is green over the new pin.
+
+## Stage 6 scope
+
+Stage 6 is taken in three increments, for the same reason Stage 5 was: each is
+verifiable on its own, and the later ones depend on the earlier.
+
+| Increment | Content | Status |
+| --- | --- | --- |
+| 1 | query subset contract in `nostdb-spec`, plus the Cypher lexer and parser for the read subset | DONE |
+| 2 | semantic analysis and read execution over a graph, with the result envelope | not started |
+| 3 | write clauses, explicit transactions, and `CALL nostdb.*` procedures | not started |
+
+### Increment 1 scope
+
+- a query subset contract in `nostdb-spec`, defining exactly what is accepted, what is
+  refused, and the two diagnostic codes the root PRD requires;
+- registration of `CYPHER_UNSUPPORTED` and `CYPHER_SEMANTIC_ERROR`;
+- Cypher conformance fixtures, accepted and refused;
+- a Cypher lexer and parser in `nostdb-core` covering the read subset, refusing
+  everything outside it with `CYPHER_UNSUPPORTED` and a source range.
+
+### Why the contract comes first again
+
+Stage 5 increment 3 established the pattern: the Engine implements a published contract
+rather than inventing vocabulary. `CYPHER_UNSUPPORTED` and `CYPHER_SEMANTIC_ERROR` are
+required by the root PRD section 28 but were never registered, so registering them and
+defining the subset is a prerequisite rather than a parallel task.
+
+This adds a third specified contract to `nostdb-spec`. A deliberate tripwire test written
+in Stage 2 asserts exactly which contracts are specified, so adding one requires updating
+that expectation, which is the point: a new contract cannot appear unnoticed.
+
+## Stage 6 increment 1 verification
+
+Passed on 2026-07-26 in `nostdb-spec` at `001ef00` and `nostdb-core` at `f89f47b`.
+
+Rust command set clean in both children: 211 unit tests plus 12 conformance and storage
+tests in the Engine, and 20 tests in the specification harness.
+
+All 28 published Cypher fixtures reproduce their declared outcome: 15 accepted, 13
+refused with `CYPHER_UNSUPPORTED` and a source range.
+
+### Refusal is structural rather than a check
+
+There is no code path that turns an unsupported construct into an approximation.
+Parsing returns `Result`, so a refusal yields no query at all, and a conformance test
+asserts that for every refused fixture. The contract's promise that nothing executes is
+therefore carried by the type rather than by remembering to check.
+
+Excluded keywords and functions are scanned before parsing begins, so an excluded
+construct is never partly interpreted on the way to being rejected.
+
+### Two defects found while implementing
+
+`shortestPath` was refused by the expression parser, which never sees it: it appears in a
+*pattern* position, as `MATCH p = shortestPath((a)-->(b))`. The check moved into the
+pre-parse scan, which covers every position.
+
+A unit test asserted that `RETURN a.n UNION ALL RETURN b.n` parses. It should not:
+`a.n` and `b.n` are genuinely different column names in Cypher, so the query is a
+semantic error. The parser was right and the test was wrong, which is worth recording,
+because the reflex is to assume the opposite.
+
+### Unsupported and semantic are different answers
+
+`CYPHER_UNSUPPORTED` means the construct is outside the subset and may be supported by a
+later build, so retrying is reasonable. `CYPHER_SEMANTIC_ERROR` means the query is wrong
+and retrying will not help.
+
+The distinction is applied rather than declared: an unbounded `*1..` is unsupported, while
+an inverted `*5..1` is semantic, because the construct is in the subset and only its
+values are wrong.
+
+### Recorded divergence: write clauses
+
+The published subset includes `CREATE`, `MERGE`, `SET`, `REMOVE`, `DELETE`, `DETACH
+DELETE`, and `CALL`. This build refuses them with `CYPHER_UNSUPPORTED` and a message
+saying it implements reading only.
+
+That is a deliberate, temporary divergence from the contract, closed by increment 3. The
+alternative was worse: half-parsing a write clause could produce a plan that drops a
+`SET`, which is exactly the silent approximation the contract exists to prevent. It is
+recorded here rather than left for a reader to discover.
+
+The fixture suite covers reading only for the same reason, which the query contract states
+explicitly rather than leaving the gap to look like an oversight.
+
+## Stage 6 increment 1 acceptance criteria
+
+- The query subset contract states exactly which clauses are accepted and what happens to
+  everything else.
+- `CYPHER_UNSUPPORTED` and `CYPHER_SEMANTIC_ERROR` are registered and documented.
+- Every accepted fixture parses; every refused fixture is refused with
+  `CYPHER_UNSUPPORTED` and a source range.
+- A refused query never runs under a guessed alternative, which the parser structure makes
+  unrepresentable rather than merely avoided.
+- No fixture is copied into `nostdb-core`.
+- The Rust command set passes in both children, and root CI is green over both new pins.
 
 ## Stage 5 increment 3 verification
 
