@@ -30,11 +30,37 @@ The root owns:
 
 ## Current bootstrap state
 
-No `.gitmodules` is present yet because real remote URLs have not been
-authorized or configured. Do not create placeholder gitlinks or local-path
-submodules: they would make the promised recursive clone non-portable.
+The organization is `nostdb`, so every child locator is
+`https://github.com/nostdb/<repository>.git`.
 
-Connecting child repositories is a separate Stage and requires:
+Connected and pinned to an exact commit:
+
+- `nostdb-spec/`
+
+Not connected, each blocked on explicit authorization to create its remote
+repository:
+
+- `nostdb-core/`
+- `nostdb-cli/`
+- `nostdb-server/`
+- `nostdb-provider-github/`
+- `nostdb-distribution/`
+- `homebrew-tap/`
+- `skills/`
+- `plugins/`
+
+`.gitmodules` records read-only HTTPS URLs so that the documented recursive
+clone works without SSH keys. A contributor who pushes to a child overrides its
+URL locally rather than changing the recorded value:
+
+```bash
+git config submodule.nostdb-spec.url git@github.com:nostdb/nostdb-spec.git
+```
+
+Do not create placeholder gitlinks or local-path submodules for the unconnected
+paths: they would make the promised recursive clone non-portable.
+
+Connecting a child repository requires:
 
 1. exact organization and repository URLs;
 2. explicit authorization before creating any missing remote repository;
@@ -44,10 +70,10 @@ Connecting child repositories is a separate Stage and requires:
 
 ## Clone contract
 
-Once connected:
+A recursive clone populates every connected child at its pinned commit:
 
 ```bash
-git clone --recurse-submodules https://github.com/<organization>/nostdb.git
+git clone --recurse-submodules https://github.com/nostdb/nostdb.git
 ```
 
 Existing non-recursive clones use:

@@ -10,11 +10,12 @@ workspace. Runtime implementation does not belong in the root repository.
 
 ## Current status
 
-The root workspace is initialized, but implementation repositories are not yet
-connected. No legacy runtime code has been copied into this repository.
+The root workspace is initialized and the first implementation repository,
+`nostdb-spec`, is connected as a submodule pinned to an exact commit. No legacy
+runtime code has been copied into this repository.
 
-Remote repositories and submodules will be added only after their exact URLs
-and creation are explicitly authorized.
+The remaining eight repositories will be created and connected only after each
+one is explicitly authorized.
 
 ## Start here
 
@@ -30,22 +31,21 @@ Read in this order:
 
 ```text
 nostdb/
-├── nostdb-spec/
-├── nostdb-core/
-├── nostdb-cli/
-├── nostdb-server/
-├── nostdb-provider-github/
-├── nostdb-distribution/
-├── homebrew-tap/
-├── skills/
-└── plugins/
+├── nostdb-spec/              # connected and pinned
+├── nostdb-core/              # not yet authorized
+├── nostdb-cli/               # not yet authorized
+├── nostdb-server/            # not yet authorized
+├── nostdb-provider-github/   # not yet authorized
+├── nostdb-distribution/      # not yet authorized
+├── homebrew-tap/             # not yet authorized
+├── skills/                   # not yet authorized
+└── plugins/                  # not yet authorized
 ```
 
-After the real submodules are connected, the complete workspace will be cloned
-with:
+Every connected submodule is cloned at its pinned commit with:
 
 ```bash
-git clone --recurse-submodules https://github.com/<organization>/nostdb.git
+git clone --recurse-submodules https://github.com/nostdb/nostdb.git
 ```
 
 Do not add placeholder submodule URLs. An option-free clone fetches only the

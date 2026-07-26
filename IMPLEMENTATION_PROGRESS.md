@@ -2,11 +2,12 @@
 
 Last updated: 2026-07-26
 
-Current stage: `Stage 0 DONE` (`Stage 1 PENDING`)
+Current stage: `Stage 1 IN_PROGRESS` (1 of 9 child repositories connected)
 
-Current milestone: The clean-slate root workspace is initialized without
-copying legacy runtime code, creating remote repositories, or adding invalid
-placeholder submodules.
+Current milestone: The clean-slate root workspace is initialized, and the first
+child repository `nostdb-spec` is connected as an exact-commit submodule in the
+authorized `nostdb` GitHub organization. The remaining eight child repositories
+are not yet authorized for creation.
 
 ## Authority
 
@@ -19,7 +20,7 @@ requirements.
 | Stage | Status | Scope | Dependency |
 | --- | --- | --- | --- |
 | 0 | DONE | Root workspace documents, instructions, license, and verification | none |
-| 1 | PENDING | Create/connect and pin child repositories as submodules | exact URLs and explicit remote authorization |
+| 1 | IN_PROGRESS | Create/connect and pin child repositories as submodules | exact URLs and explicit remote authorization |
 | 2 | PENDING | Executable `.nost` and `.nostdb` specification foundation | Stage 1 |
 | 3 | PENDING | Core model and typed change contracts | Stage 2 |
 | 4 | PENDING | Storage and transaction foundation | Stage 3 |
@@ -73,5 +74,139 @@ Passed on 2026-07-26:
 - empty `git remote -v`
 - absence of `.gitmodules`
 
-Stage 1 was not started. It remains dependent on exact repository URLs and
-explicit authorization for any remote repository creation or connection.
+## Stage 1 scope
+
+Connect every intended child repository from `docs/REPOSITORIES.md` as a direct
+child submodule pinned to an exact commit.
+
+Full Stage 1 requires all nine children: `nostdb-spec`, `nostdb-core`,
+`nostdb-cli`, `nostdb-server`, `nostdb-provider-github`, `nostdb-distribution`,
+`homebrew-tap`, `skills`, and `plugins`.
+
+### Resolved dependency: repository URLs
+
+The root remote resolves the organization, so the child URLs are no longer
+unknown:
+
+```text
+origin  git@github.com:nostdb/nostdb.git
+```
+
+`nostdb` is a GitHub Organization. Each child locator is therefore
+`git@github.com:nostdb/<repository>.git`.
+
+### Authorized scope for this request
+
+Authorization covered `nostdb-spec` only:
+
+- create `nostdb-spec` as a public repository in the `nostdb` organization;
+- push its initial commit;
+- pin it as a root submodule;
+- push root `main`.
+
+The initial `nostdb-spec` commit is repository scaffolding only. It carries
+`README.md`, `AGENTS.md`, `CLAUDE.md`, `LICENSE`, editor and ignore defaults,
+and a non-mutating repository verifier. It deliberately contains no grammar,
+format contract, protocol schema, example, or conformance fixture, because
+authoring those is Stage 2.
+
+### Still blocked
+
+These eight children remain uncreated and unpinned pending explicit
+authorization for each remote repository creation:
+
+```text
+nostdb-core
+nostdb-cli
+nostdb-server
+nostdb-provider-github
+nostdb-distribution
+homebrew-tap
+skills
+plugins
+```
+
+Stage 1 therefore stays `IN_PROGRESS` and MUST NOT be marked `DONE` until every
+child is connected and pinned.
+
+## Stage 1 acceptance criteria
+
+- Every intended child repository exists with a real remote URL and at least one
+  commit.
+- `.gitmodules` records each child at its normative directory name.
+- Every gitlink pins an exact commit, not a floating branch.
+- Each child carries its own `README.md`, `AGENTS.md`, and PRD-mandated license.
+- No child `AGENTS.md` weakens a root product, safety, or ownership boundary.
+- No placeholder URL or local-path gitlink is present.
+- The root workspace verifier passes with `.gitmodules` present.
+- `git clone --recurse-submodules` populates every pinned child.
+- No runtime implementation is added to the root repository.
+
+Criteria met so far apply to `nostdb-spec` only.
+
+## Stage 1 verification
+
+Passed on 2026-07-26 for the authorized `nostdb-spec` scope.
+
+Child repository, before publication:
+
+- `bash -n scripts/verify-repository.sh`
+- `./scripts/verify-repository.sh`
+- Apache-2.0 `LICENSE` taken verbatim from
+  `https://www.apache.org/licenses/LICENSE-2.0.txt` and confirmed as the
+  canonical Git blob `d645695673349e3947e8e5ae42332d0ac3164cd7`
+- `CLAUDE.md` committed as a symlink to `AGENTS.md`, Git mode `120000`
+- `scripts/verify-repository.sh` committed executable, Git mode `100755`
+
+Root workspace, after pinning:
+
+- `bash -n scripts/verify-workspace.sh`
+- `./scripts/verify-workspace.sh`, now exercising its `.gitmodules` branch
+- `git diff --check`
+- `git submodule status --recursive` reports one clean exact pin
+- `./nostdb-spec/scripts/verify-repository.sh` from the submodule checkout
+
+Recorded pin:
+
+```text
+nostdb-spec  b3f302b1eccb91cf426e03f08419859ebd8e8898
+```
+
+Clone contract, verified against fresh clones of the committed root:
+
+- `git clone --recurse-submodules` populates `nostdb-spec` at the pinned commit,
+  and both the root and the child verifier pass inside that clone;
+- an option-free `git clone` leaves `nostdb-spec` empty, and
+  `./scripts/verify-workspace.sh` correctly fails with
+  `-b3f302b1eccb91cf426e03f08419859ebd8e8898 nostdb-spec`.
+
+That satisfies the first two `docs/PRD.md` section 30.10 workspace criteria for
+the connected child. The remaining section 30.10 criteria stay open because they
+require the other children and root CI.
+
+### Authorized remote actions
+
+Authorization covered `nostdb-spec` only. Performed:
+
+- created `https://github.com/nostdb/nostdb-spec` as a public repository;
+- pushed its initial commit to `main`.
+
+Root `main` is pushed to `origin` as the closing step of this Stage increment.
+
+### Recorded decisions
+
+`.gitmodules` records the read-only HTTPS locator
+`https://github.com/nostdb/nostdb-spec.git` rather than the SSH locator used by
+the root `origin`. The child is public, so HTTPS lets the recursive clone
+documented in `docs/PRD.md` section 8.1 succeed without SSH keys. A contributor
+who pushes to the child overrides the URL locally instead of changing the
+recorded value.
+
+`docs/PRD.md` was not modified. Its `<organization>` placeholders belong to the
+approved normative contract, and Stage 0 verification diffs the PRD against an
+approved source. Only `README.md` and `docs/REPOSITORIES.md` were made concrete,
+because both asserted that no child repository was connected.
+
+The initial `nostdb-spec` commit contains no grammar, format contract, protocol
+schema, example, or conformance fixture. Authoring those is Stage 2, which was
+not started.
