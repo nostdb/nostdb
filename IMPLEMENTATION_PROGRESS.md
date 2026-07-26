@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-26
 
-Current stage: `Stage 3 DONE` (`Stage 4 PENDING`)
+Current stage: `Stage 4 DONE` (`Stage 5 PENDING`)
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification and Engine repositories `nostdb-spec` and `nostdb-core` are
@@ -25,7 +25,7 @@ requirements.
 | 1 | DONE | Connect and pin the specification and Engine repositories `nostdb-spec` and `nostdb-core` | exact URLs and explicit remote authorization |
 | 2 | DONE | Executable `.nost` and `.nostdb` specification foundation | Stage 1 |
 | 3 | DONE | Core model and typed change contracts | Stage 2 |
-| 4 | PENDING | Storage and transaction foundation | Stage 3 |
+| 4 | DONE | Storage and transaction foundation | Stage 3 |
 | 5 | PENDING | Parser, sync, and deterministic analysis foundation | Stage 4 |
 | 6 | PENDING | openCypher subset and query execution | Stage 5 |
 | 7 | PENDING | CLI, REPL, conversion, and link management | Stage 6, plus connected `nostdb-cli` |
@@ -803,4 +803,148 @@ is a decision, not a detail.
   data-model crate has nothing to log yet, and adding an unused dependency would
   contradict the dependency-review rule.
 
-Stage 4 was not started in this request.
+## Stage 4 scope
+
+Implement the `.nostdb` container and the transaction foundation in `nostdb-core`,
+against the contract `nostdb-spec` published in Stage 2.
+
+In scope:
+
+- CRC-32C, verified against its standard check value;
+- the 48-byte header and the 32-byte section table entry, read and written;
+- the twelve ordered bounded-parsing checks, mapped to `NOSTDB_CORRUPT`,
+  `NOSTDB_FORMAT_UNSUPPORTED`, and `NOSTDB_LIMIT_EXCEEDED`;
+- a writer that lays out, checksums, and serializes a container;
+- a monotonic database generation;
+- a journal record format with a per-record checksum, idempotent replay, and
+  rejection of a torn record;
+- atomic commit through staged write and promotion, preserving the last valid
+  generation when a commit fails;
+- conformance against the `nostdb-spec` container fixtures, exercised from the
+  superproject.
+
+### Deferred out of Stage 4: section payload encodings
+
+Stage 4 stores and retrieves section bytes. How a Node, an Edge, a property, or an
+Evidence record is laid out *inside* a section is not specified here.
+
+Stage 2 deliberately drew the contract boundary at the container envelope, so an
+implementation could refuse a corrupt or unsupported file before record encodings
+were designed. Stage 3 defined the model as types, not as bytes. The encoding is
+therefore its own contract, and it lands with the parser in Stage 5, which is what
+first needs to turn records into bytes.
+
+That keeps this Stage honest: the container is complete and conformant, and it
+carries opaque section payloads until the encoding contract exists.
+
+## Stage 4 acceptance criteria
+
+- CRC-32C reproduces the standard check value `0xE3069283` for `123456789`.
+- A written container reads back identically, including generation and every
+  section.
+- Each of the twelve ordered checks is exercised, and each reports the diagnostic
+  code the contract assigns it.
+- The checks run in contract order, so a container breaking several rules reports
+  the first one rather than an arbitrary one.
+- Every `nostdb-spec` container fixture reproduces its declared outcome, run
+  against the pinned commit set from the superproject rather than a vendored copy.
+- A generation advances monotonically and never decreases.
+- A journal replays idempotently, and a torn record is discarded rather than
+  replayed.
+- A failed commit leaves the previous container readable.
+- `cargo fmt --check`, `cargo check`, `cargo clippy --all-targets --all-features
+  -- -D warnings`, and `cargo test --all-targets --all-features` pass.
+- No conformance fixture is copied into `nostdb-core`.
+- Child CI is green, and root CI is green over the new pin.
+
+## Stage 4 verification
+
+Passed on 2026-07-26 in `nostdb-core` at commit `c548903`.
+
+Rust command set, all clean:
+
+- `cargo fmt --check`
+- `cargo check --all-targets --all-features`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test --all-targets --all-features`, 122 unit tests plus 3 conformance tests
+
+Repository and workspace:
+
+- `bash -n` and a pass of `nostdb-core/scripts/verify-repository.sh`
+- `bash -n` and a pass of `./scripts/verify-workspace.sh`
+- the exact `git submodule foreach` command from the root workflow, across both
+  children
+
+### Container conformance against the pinned specification
+
+`nostdb-core` reproduces every outcome the `nostdb-spec` container suite declares:
+20 fixtures, 3 accepted and 17 rejected, each rejection carrying the diagnostic code
+the fixture names.
+
+That result is worth stating precisely: the Engine's reader and the reference
+validator in `nostdb-spec` were written independently against the same prose
+contract, and they agree on all 20 cases including the ordering-sensitive ones. A
+disagreement would have meant the contract was ambiguous.
+
+The fixtures are not copied into the Engine. The conformance test reads them from a
+path the superproject supplies in `NOSTDB_SPEC_FIXTURES`, so it runs against the
+exact pinned commit.
+
+### Closing the silent-skip hole
+
+A standalone clone of `nostdb-core` has no sibling checkout, so the conformance test
+reports itself skipped and passes. An independent build must not require a sibling,
+but a skipped test proves nothing.
+
+`scripts/verify-workspace.sh` therefore runs that test with the fixture path set and
+fails unless it confirms the fixtures ran. That was proven by moving the fixture
+directory aside: the root check fails with `the container conformance test did not run
+against the nostdb-spec fixtures`.
+
+### Ordering is part of the contract
+
+The twelve checks run in the contract's order, and that is tested rather than
+assumed. A container whose section count exceeds the limit *and* whose table would
+fall outside the file reports `NOSTDB_LIMIT_EXCEEDED`, because the limit is checked
+before the table is sized. Reporting the bounds failure instead would be a defect,
+since the whole point of the ordering is to bound allocation before any length from
+an untrusted file is trusted.
+
+Flipping any single bit in the 44 checksum-covered header bytes is detected, tested
+exhaustively rather than by sampling.
+
+### Recorded decision: what the journal is actually for
+
+Replacing one file atomically needs no journal, because a staged write followed by a
+rename is already all-or-nothing. The journal exists for what a rename cannot cover:
+a change spanning several files. Adding a link touches the database, the settings
+mirror, and possibly the materialized `.nost`, and a crash between those renames
+would leave them disagreeing.
+
+The journal therefore records promotion and removal intent, brackets it with a
+`Begin` and a `Commit`, and is replayed by re-applying only the last committed
+transaction. Actions are expressed as a desired end state, which is what makes
+replaying twice equal to replaying once.
+
+Recovery was tested at every truncation point of a transaction, not only at record
+boundaries, because a crash during an append can land anywhere.
+
+### Recorded decision: durability limits stated rather than implied
+
+The staged file and the journal are flushed with `sync_all` before the rename. The
+containing directory is flushed best effort, because not every platform and
+filesystem supports flushing a directory handle and treating that as a failure would
+break commits on systems where the rename is already durable.
+
+The consequence is stated in the module documentation rather than left implicit: on a
+system that ignores directory flushes, a power loss immediately after a rename can
+lose the rename, and the journal is what lets the next open finish the promotion.
+
+### Deferred out of Stage 4
+
+Section payload encodings. Stage 4 stores and retrieves section bytes; how a Node, an
+Edge, a property, or an Evidence record is laid out inside a section is a separate
+contract that lands with the parser in Stage 5, which is the first thing that needs
+to turn a record into bytes.
+
+Stage 5 was not started in this request.

@@ -200,6 +200,37 @@ if [ -f "$core_diagnostics" ] && [ -f "$spec_registry" ]; then
   fi
 fi
 
+# Cross-repository conformance check.
+#
+# nostdb-core must reproduce every container outcome nostdb-spec declares, run against
+# the pinned commit set rather than a copy vendored into the Engine. The Engine's own
+# test skips when it is not given a fixture path, so that a standalone clone still
+# builds; a skip proves nothing, so this requires the confirmation line and fails
+# without it.
+if [ -f nostdb-core/Cargo.toml ] && [ -d nostdb-spec/fixtures ]; then
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "cargo is required to run the cross-repository conformance check" >&2
+    exit 1
+  fi
+
+  conformance_log=$(
+    NOSTDB_SPEC_FIXTURES="$workspace_root/nostdb-spec/fixtures" \
+      cargo test --quiet --manifest-path nostdb-core/Cargo.toml \
+      --test container_conformance -- --nocapture 2>&1
+  ) || {
+    echo "the container conformance test failed" >&2
+    printf '%s\n' "$conformance_log" >&2
+    exit 1
+  }
+
+  if ! printf '%s\n' "$conformance_log" | grep -q 'fixtures verified'; then
+    echo "the container conformance test did not run against the nostdb-spec fixtures" >&2
+    printf '%s\n' "$conformance_log" >&2
+    exit 1
+  fi
+  printf '%s\n' "$conformance_log" | grep 'fixtures verified'
+fi
+
 git diff --check
 
 echo "workspace verification passed"
