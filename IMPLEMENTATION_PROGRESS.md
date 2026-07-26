@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-26
 
-Current stage: `Stage 5 IN_PROGRESS` (increments 1 and 2 of 3 done)
+Current stage: `Stage 5 DONE` (`Stage 6 PENDING`)
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification and Engine repositories `nostdb-spec` and `nostdb-core` are
@@ -26,7 +26,7 @@ requirements.
 | 2 | DONE | Executable `.nost` and `.nostdb` specification foundation | Stage 1 |
 | 3 | DONE | Core model and typed change contracts | Stage 2 |
 | 4 | DONE | Storage and transaction foundation | Stage 3 |
-| 5 | IN_PROGRESS | Parser, sync, and deterministic analysis foundation | Stage 4 |
+| 5 | DONE | Parser, sync, and deterministic analysis foundation | Stage 4 |
 | 6 | PENDING | openCypher subset and query execution | Stage 5 |
 | 7 | PENDING | CLI, REPL, conversion, and link management | Stage 6, plus connected `nostdb-cli` |
 | 8 | PENDING | Per-user local daemon | Stage 7, plus connected `nostdb-server` |
@@ -857,6 +857,74 @@ carries opaque section payloads until the encoding contract exists.
 - No conformance fixture is copied into `nostdb-core`.
 - Child CI is green, and root CI is green over the new pin.
 
+## Stage 5 increment 3 verification
+
+Passed on 2026-07-26 in `nostdb-spec` at `0d1ad42` and `nostdb-core` at `fcffa38`.
+
+Rust command set clean in both children, with 194 unit tests plus 12 conformance and
+storage tests in the Engine, and 20 tests in the specification harness.
+
+This completes Stage 5.
+
+### The contract was extended before the Engine implemented it
+
+Synchronization needed `SYNC_CONFLICT` and `NOST_SOURCE_STALE`, and neither was
+registered. Rather than inventing codes in the Engine, `nostdb-spec` gained a
+Synchronization section defining the baseline, the four-way state machine, what a
+conflict is not, and the determinism synchronization depends on. The Engine then
+implemented a published contract instead of leading it.
+
+Two findings recorded during increment 1 were closed in the same change:
+
+- the confidence range rule now names `confidence_score`, since a range rule is
+  unenforceable without knowing which property it governs;
+- the blank-line rule now applies to block declarations, so link directives form one
+  group rather than being separated from each other, which is what the PRD's own example
+  shows.
+
+### Why a baseline rather than a timestamp
+
+A generation advances only on a successful commit and a digest changes only when bytes
+change, so both are properties of content. A modification time is a property of the
+environment: two machines can disagree about the clock while both files are legitimate,
+and a copy can carry any time at all.
+
+The database counts as changed when *either* its generation or its digest differs.
+Neither alone is sufficient, and both failure modes are tested: a generation comparison
+alone would accept an externally rewritten file at the same generation as unchanged, and
+a digest comparison alone carries no ordering.
+
+### A conflict authorizes nothing
+
+Exactly one of the four outcomes permits modification, and a test asserts that by
+filtering all four rather than by checking the conflict case alone. A conflict is not a
+merge failure to retry: both sides hold work derived from one baseline, so preferring
+either would discard the other silently.
+
+### No closed language list
+
+An unregistered language is `PrecisionClass::Unsupported`, which is a value rather than
+an error, because unsupported text stays eligible for AI fallback and still produces a
+source record. Treating it as a failure would discard work the product promises.
+
+Registration refuses a capability that declares unsupported or extracts no fact kind.
+Both would make a language look covered while producing no graph.
+
+`ANALYZER_UNSUPPORTED` was deliberately not registered. Capability is data, not a
+finding, so it is returned as a value; the code belongs to an analysis contract that does
+not exist yet.
+
+### A defect the cross-repository check found in itself
+
+Re-pinning failed the root diagnostic cross-check, which reported `SYNC_CONFLICT` as
+present in the specification and absent from the Engine. The Engine had it. The check's
+extraction was anchored on a `NOST` prefix and could not see a code starting with `SYNC`.
+
+The check was broadened to any upper-snake-case literal, which is exact because every
+other quoted string in the non-test part of that file starts lower case. Worth noting
+that the failure was in the checking code rather than the checked code, and that it was
+caught the first time a code broke the prefix assumption.
+
 ## Stage 5 increment 2 verification
 
 Passed on 2026-07-26 in `nostdb-core` at commit `ef53474`.
@@ -976,9 +1044,7 @@ to `nostdb-spec`.
 
 ### Remaining Stage 5 work
 
-Increment 2 landed in the same session; see its verification above. Increment 3 is the
-synchronization state machine and the deterministic analyzer capability boundary. Stage 5
-stays `IN_PROGRESS`.
+All three increments landed; see their verification sections above. Stage 5 is `DONE`.
 
 ## Stage 4 verification
 
@@ -1080,7 +1146,7 @@ are done. The Stage table is unchanged; only the order of work inside it is reco
 | --- | --- | --- |
 | 1 | `.nost` lexer, comment-preserving CST, parser, semantic validation, canonical formatter | DONE |
 | 2 | section payload encodings, so a graph round-trips through a container | DONE |
-| 3 | synchronization state machine and the deterministic analyzer capability boundary | not started |
+| 3 | synchronization state machine and the deterministic analyzer capability boundary | DONE |
 
 Increment 1 is first because everything else in Stage 5 depends on it: an encoding has
 nothing to encode until records can be read, and synchronization has nothing to

@@ -170,9 +170,13 @@ core_diagnostics="nostdb-core/src/diagnostic.rs"
 spec_registry="nostdb-spec/diagnostics.json"
 
 if [ -f "$core_diagnostics" ] && [ -f "$spec_registry" ]; then
+  # Any upper-snake-case quoted string, not only a NOST prefix. An earlier version
+  # anchored on NOST and silently missed SYNC_CONFLICT, so the check reported a code as
+  # absent from the Engine when the Engine had it. Every other quoted string in the
+  # non-test part of that file starts lower case, so this stays exact.
   core_codes=$(
     sed '/#\[cfg(test)\]/,$d' "$core_diagnostics" |
-      grep -oE '"NOST[A-Z_]+"' | tr -d '"' | LC_ALL=C sort -u
+      grep -oE '"[A-Z][A-Z_]+"' | tr -d '"' | LC_ALL=C sort -u
   )
   spec_codes=$(
     grep -oE '"code": *"[A-Z_]+"' "$spec_registry" |
