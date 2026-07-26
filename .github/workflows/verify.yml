@@ -1,0 +1,47 @@
+# Root workspace verification.
+#
+# docs/PRD.md section 8.1 requires the root to run CI with recursive submodule
+# checkout, and section 30.10 requires root CI to verify the exact pinned commit
+# set. This workflow does both, then delegates to each connected child.
+#
+# Action dependency: actions/checkout, maintained by GitHub, MIT licensed, and
+# pinned to the exact commit of tag v7.0.1 rather than a floating major tag.
+#
+# The default GITHUB_TOKEN reads public submodules only. Connecting a private
+# child will additionally require a token that can read that repository.
+
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify pinned workspace
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the root and every pinned submodule
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Verify the root workspace
+        run: ./scripts/verify-workspace.sh
+
+      - name: Verify every connected child repository
+        run: |
+          git submodule foreach --recursive '
+            if [ -x scripts/verify-repository.sh ]; then
+              ./scripts/verify-repository.sh
+            else
+              echo "child $name has no executable scripts/verify-repository.sh" >&2
+              exit 1
+            fi
+          '

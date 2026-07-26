@@ -50,12 +50,23 @@ repository:
 - `plugins/`
 
 `.gitmodules` records read-only HTTPS URLs so that the documented recursive
-clone works without SSH keys. A contributor who pushes to a child overrides its
-URL locally rather than changing the recorded value:
+clone works without SSH keys. A contributor who pushes to a child keeps the
+recorded URL and redirects only the push side. One global setting covers every
+repository and submodule:
 
 ```bash
-git config submodule.nostdb-spec.url git@github.com:nostdb/nostdb-spec.git
+git config --global url."git@github.com:".pushInsteadOf https://github.com/
 ```
+
+The equivalent setting scoped to a single submodule is:
+
+```bash
+git -C nostdb-spec config url."git@github.com:".pushInsteadOf https://github.com/
+```
+
+Do not use `git config submodule.<name>.url` for this. That key only redirects
+where `git submodule update` clones from, `git submodule sync` resets it from
+`.gitmodules`, and it does not affect the push URL at all.
 
 Do not create placeholder gitlinks or local-path submodules for the unconnected
 paths: they would make the promised recursive clone non-portable.
@@ -92,10 +103,15 @@ Each child repository must:
 - contain its own `README.md` and `AGENTS.md`;
 - carry its own license;
 - format, build, lint, and test independently;
+- provide an executable `scripts/verify-repository.sh` covering that repository;
+- run its own CI on push and pull request;
 - expose versioned public boundaries;
 - avoid depending on uncommitted sibling state.
 
-The root integration suite verifies the exact pinned commit set.
+Root CI checks out the pinned commit set recursively, runs
+`scripts/verify-workspace.sh`, and then runs each child's
+`scripts/verify-repository.sh`. A child that does not provide that script fails
+root verification.
 
 ## Licensing
 

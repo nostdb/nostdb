@@ -169,7 +169,7 @@ Root workspace, after pinning:
 Recorded pin:
 
 ```text
-nostdb-spec  b3f302b1eccb91cf426e03f08419859ebd8e8898
+nostdb-spec  725b761a9104b591633427bdba21b735217bdf77
 ```
 
 Clone contract, verified against fresh clones of the committed root:
@@ -210,3 +210,86 @@ because both asserted that no child repository was connected.
 The initial `nostdb-spec` commit contains no grammar, format contract, protocol
 schema, example, or conformance fixture. Authoring those is Stage 2, which was
 not started.
+
+## Stage 1 continuation: enforcement and CI
+
+Stage 1 stays `IN_PROGRESS`. This increment connected no additional child,
+because creating one is still unauthorized. It closed the gap between the Stage 1
+acceptance criteria and what the workspace could actually detect.
+
+### Continuous integration
+
+`docs/PRD.md` section 8.1 requires the root to run CI with recursive submodule
+checkout, and section 30.10 requires root CI to verify the exact pinned commit
+set. Neither existed. `.github/workflows/verify.yml` now checks out the pinned
+set recursively, runs `scripts/verify-workspace.sh`, and then runs each connected
+child's `scripts/verify-repository.sh`.
+
+`nostdb-spec` received an equivalent workflow so it verifies independently, as
+`docs/REPOSITORIES.md` requires of every child. That document now also records
+the `scripts/verify-repository.sh` convention root CI depends on.
+
+Dependency review covering both workflows:
+
+| Dependency | Purpose | Maintenance | License | Pin |
+| --- | --- | --- | --- | --- |
+| `actions/checkout` | recursive checkout of the pinned commit set | maintained by GitHub | MIT | commit `3d3c42e5aac5ba805825da76410c181273ba90b1`, tag `v7.0.1` |
+
+Both workflows request only `contents: read` and disable credential persistence.
+The default `GITHUB_TOKEN` reads public submodules only, so connecting a private
+child will additionally require a token that can read that repository.
+
+### Enforced submodule pin invariants
+
+`scripts/verify-workspace.sh` previously checked only that a submodule sat at its
+recorded pin. It now also rejects an illegitimate pin. Every check was proven to
+reject rather than assumed to work:
+
+| Rejected condition | Diagnostic |
+| --- | --- |
+| recorded submodule branch | `a submodule records a branch; every pin must be an exact commit` |
+| SSH URL in `.gitmodules` | `must record https://github.com/<owner>/<repository>.git` |
+| placeholder URL | `records a placeholder URL` |
+| local-path URL | `must record https://github.com/<owner>/<repository>.git` |
+| path differing from the submodule name | `must use its own name as its path` |
+| path outside the normative section 8.1 names | `not a normative child directory name` |
+| gitlink with no `.gitmodules` entry | `gitlinks in the index do not match the paths declared in .gitmodules` |
+| missing root CI workflow | `missing required file: .github/workflows/verify.yml` |
+
+Two of those checks are defense in depth. A path or name inconsistency in an
+initialized submodule normally trips the gitlink-match, path-equals-name, or
+off-pin check first, so proving the normative-name check required declaring a
+fully consistent, initialized submodule at a non-normative path.
+
+### Correction
+
+The previous increment documented this override for contributors who push over
+SSH:
+
+```text
+git config submodule.<name>.url <ssh-url>
+```
+
+That is wrong, and `docs/REPOSITORIES.md` has been corrected. The key only
+redirects where `git submodule update` clones from, `git submodule sync` resets
+it from `.gitmodules`, and it does not affect the push URL at all. The working
+mechanism is a `pushInsteadOf` redirect, which keeps fetches on HTTPS, sends
+pushes over SSH, and survives `git submodule sync`.
+
+The error surfaced because pushing the child actually failed rather than because
+the document was reread. The verifier now rejects an SSH URL recorded in
+`.gitmodules`, so the intuitive wrong fix cannot be committed.
+
+### Stage 1 continuation verification
+
+Passed on 2026-07-26:
+
+- `bash -n scripts/verify-workspace.sh`
+- `./scripts/verify-workspace.sh`
+- `./nostdb-spec/scripts/verify-repository.sh`
+- both workflow files parsed as YAML, confirming a single `contents: read`
+  permission and the pinned `actions/checkout` commit
+- the eight negative cases above, each rejected with its intended diagnostic
+- the advanced submodule rejected before re-pinning and accepted after
+  `git add nostdb-spec`
+- `git diff --check`

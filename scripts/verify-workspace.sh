@@ -16,6 +16,7 @@ IMPLEMENTATION_PROGRESS.md
 docs/PRD.md
 docs/ARCHITECTURE.md
 docs/REPOSITORIES.md
+.github/workflows/verify.yml
 "
 
 for required_file in $required_files; do
@@ -34,6 +35,7 @@ IMPLEMENTATION_PROGRESS.md
 docs/PRD.md
 docs/ARCHITECTURE.md
 docs/REPOSITORIES.md
+.github/workflows/verify.yml
 scripts/verify-workspace.sh
 "
 
@@ -49,6 +51,42 @@ if [ ! -L CLAUDE.md ] || [ "$(readlink CLAUDE.md)" != "AGENTS.md" ]; then
   exit 1
 fi
 
+# Normative child directory names, from docs/PRD.md section 8.1.
+normative_submodule_paths="
+nostdb-spec
+nostdb-core
+nostdb-cli
+nostdb-server
+nostdb-provider-github
+nostdb-distribution
+homebrew-tap
+skills
+plugins
+"
+
+# A gitlink with no .gitmodules entry cannot be populated by a recursive clone,
+# and a declared path with no gitlink is not pinned at all. Both sets must match
+# exactly, including when no .gitmodules exists yet.
+index_gitlinks=$(git ls-files -s | awk '$1 == "160000" { print $4 }' | LC_ALL=C sort)
+
+if [ -f .gitmodules ]; then
+  declared_submodule_paths=$(
+    git config --file .gitmodules --get-regexp '^submodule\..*\.path$' |
+      awk '{ print $2 }' | LC_ALL=C sort
+  )
+else
+  declared_submodule_paths=""
+fi
+
+if [ "$index_gitlinks" != "$declared_submodule_paths" ]; then
+  echo "gitlinks in the index do not match the paths declared in .gitmodules" >&2
+  echo "index gitlinks:" >&2
+  printf '%s\n' "$index_gitlinks" >&2
+  echo "declared paths:" >&2
+  printf '%s\n' "$declared_submodule_paths" >&2
+  exit 1
+fi
+
 if [ -f .gitmodules ]; then
   submodule_status=$(git submodule status --recursive)
   if printf '%s\n' "$submodule_status" | grep -Eq '^[+U-]'; then
@@ -56,6 +94,45 @@ if [ -f .gitmodules ]; then
     printf '%s\n' "$submodule_status" >&2
     exit 1
   fi
+
+  # A recorded branch lets `git submodule update --remote` float a pin, which
+  # docs/PRD.md section 8.1 forbids for a reproducible build.
+  if recorded_branches=$(git config --file .gitmodules --get-regexp '^submodule\..*\.branch$'); then
+    echo "a submodule records a branch; every pin must be an exact commit" >&2
+    printf '%s\n' "$recorded_branches" >&2
+    exit 1
+  fi
+
+  while read -r url_key submodule_url; do
+    submodule_name=${url_key#submodule.}
+    submodule_name=${submodule_name%.url}
+
+    # A placeholder or local-path URL would make the promised recursive clone
+    # non-portable. Contributors who push over SSH use the pushInsteadOf
+    # redirect documented in docs/REPOSITORIES.md instead of editing this value.
+    case "$submodule_url" in
+      *'<'* | *'>'*)
+        echo "submodule $submodule_name records a placeholder URL: $submodule_url" >&2
+        exit 1
+        ;;
+      https://github.com/*/*.git) ;;
+      *)
+        echo "submodule $submodule_name must record https://github.com/<owner>/<repository>.git, found: $submodule_url" >&2
+        exit 1
+        ;;
+    esac
+
+    submodule_path=$(git config --file .gitmodules --get "submodule.$submodule_name.path")
+    if [ "$submodule_path" != "$submodule_name" ]; then
+      echo "submodule $submodule_name must use its own name as its path, found: $submodule_path" >&2
+      exit 1
+    fi
+
+    if ! printf '%s\n' $normative_submodule_paths | grep -qx "$submodule_path"; then
+      echo "submodule path is not a normative child directory name: $submodule_path" >&2
+      exit 1
+    fi
+  done < <(git config --file .gitmodules --get-regexp '^submodule\..*\.url$')
 fi
 
 git diff --check
