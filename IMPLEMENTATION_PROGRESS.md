@@ -1382,11 +1382,12 @@ the only rule that cannot silently weaken a declaration the author wrote.
 Increment 4 is larger than the three before it put together. It is being taken in parts,
 and this records what is done, what is not, and why the split falls where it does.
 
-Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `e2d964d`, and `nostdb-cli` `c0cea1c`:
+Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `4c051a8`, and `nostdb-cli` `a916f89`:
 link resolution and recursive federation in Core, federated queries, `link list`, `link
 check`, `sync`, and `link add` and `link remove` through the multi-file journal, and the source scanner with
-its hand-written Git-ignore matcher, and `plan`. `./scripts/verify-workspace.sh` passes
-over all three pins, with 559 tests in the Engine and 109 in the command surface.
+its hand-written Git-ignore matcher, `plan`, and the Rust structural analyzer.
+`./scripts/verify-workspace.sh` passes over all three pins, with 610 tests in the Engine
+and 110 in the command surface.
 
 ### Recorded decision: resolution reports rather than fails
 
@@ -1641,17 +1642,61 @@ it is reminded to revisit the plan's counts.
 `plan` exits 8 when the estimate would cross a configured limit. Planning succeeded; the
 plan is still printed, because a caller needs to see the number that failed.
 
+### The first analyzer, and what running it on real source found
+
+The Rust analyzer is hand-written and takes no dependency, which is the decision recorded
+above. It reads item structure and resolves nothing across files, which is exactly what
+`DeterministicSyntactic` claims: a call is recorded as a reference to a *name*, never as an
+edge to a function, because deciding which `parse` a bare `parse(` means needs imports,
+generics, and trait resolution.
+
+The lexer is where the correctness lives. A `/*` inside a line comment, a `}` inside a raw
+string, an apostrophe in `'\''` — each silently moves a brace, and from there every item
+lands in the wrong parent. A skim parser is allowed to be imprecise about meaning; it is
+not allowed to be wrong about nesting, because nesting is the only thing it actually knows.
+
+Four defects came out of running it over `nostdb-core` rather than over fixtures. Each is
+now a named test, and each is a case a fixture suite written by the same person who wrote
+the parser would not have contained:
+
+- `call_site` consumed its path and the caller advanced again, so `Self { .. }` in a
+  constructor skipped a brace and the body's depth count was wrong from then on;
+- `skip_generics` ran after every path segment including in expression position, so
+  `if float < -LIMIT {` read as generic arguments and the scan ate braces looking for a
+  `>`. Rust requires a turbofish in expression position for the same reason, and the
+  analyzer now draws the same distinction;
+- `skip_to_comma` split at every comma, so a field typed `BTreeMap<&'a str, (FieldType,
+  bool)>` ended the field list at its closing paren and took the rest of the file with it.
+  The test that should have caught this passed by luck: splitting `BTreeMap<String,
+  Vec<u8>>` still left the next field recognizable;
+- a mid-path turbofish ended the path, dropping the qualifier from
+  `Vec::<u8>::with_capacity`.
+
+Cross-checked against an independent line scan: 1442 items across 43 files where a crude
+scan finds 1463. The difference is `macro_rules!` bodies and `fn` inside test string
+literals, both of which the analyzer refuses to treat as items on purpose. 123 MB/s in
+release, digesting included.
+
+### The pipeline joined up
+
+`plan` now reads the Engine's registry rather than an empty one, and the guard test
+asserting the registry was empty failed — which is what it was for. Over a real tree, 46
+Rust files move from unsupported to `deterministic syntactic`, semantic candidates fall
+from 48 to 2, and the estimate falls from 189k–549k tokens to 2k–5k. That is the "structural
+analysis of supported source spends zero AI tokens" invariant showing up as a number rather
+than as a claim.
+
 ### Not done, and what each needs
 
 | Remaining | Needs |
 | --- | --- |
 | `link refresh` | the GitHub provider in Stage 9. A local link has no snapshot to advance |
-| `build` | scanning and planning are in. Still needed: the structural parse and context resolution cache keys, a first hand-written analyzer, and the atomic replacement of analyzer-owned contributions |
+| `build` | scanning, planning, and a first analyzer are in. Still needed: turning a `FileAnalysis` into a `GraphChangeSet`, cross-file reference resolution with Placeholders, the two cache keys, and the atomic replacement of analyzer-owned contributions |
 | `apply` | a `GraphChangeSet` on disk, which needs the `change_set_version` contract that is still deferred |
 
-Scanning, ignore handling, and planning are done, and the parsing-technology decision that
-blocked them is made and recorded above. `build` is what remains, and a first hand-written
-analyzer is the next piece of it.
+Scanning, ignore handling, planning, and the first analyzer are done. `build` is what
+remains: committing what the analyzer found, which needs a `GraphChangeSet`, cross-file
+resolution, and ownership-scoped replacement.
 
 ## Stage 7 increment 3 verification
 
