@@ -1382,12 +1382,12 @@ the only rule that cannot silently weaken a declaration the author wrote.
 Increment 4 is larger than the three before it put together. It is being taken in parts,
 and this records what is done, what is not, and why the split falls where it does.
 
-Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `91ed367`, and `nostdb-cli` `4a57e06`:
+Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `0d8586d`, and `nostdb-cli` `2cff583`:
 link resolution and recursive federation in Core, federated queries, `link list`, `link
 check`, `sync`, and `link add` and `link remove` through the multi-file journal, and the source scanner with
 its hand-written Git-ignore matcher, `plan`, the Rust structural analyzer, and `build`.
-`./scripts/verify-workspace.sh` passes over all three pins, with 645 tests in the Engine
-and 115 in the command surface.
+`./scripts/verify-workspace.sh` passes over all three pins, with 651 tests in the Engine
+and 118 in the command surface.
 
 ### Recorded decision: resolution reports rather than fails
 
@@ -1726,12 +1726,52 @@ The pipeline runs end to end over this crate: 45 files, 3335 nodes, 4776 edges, 
 references resolved. Appending one function and rebuilding reports `1 created, 3335
 updated`, and a Cypher query finds it at the right line.
 
+### Incremental rebuild, and the correctness question it raised
+
+A file whose bytes match the digest already recorded is no longer re-read, which is what
+section 17.8 asks for. `--rebuild` asks for the work to be redone anyway.
+
+Reuse is only sound while the names an unchanged file could refer to have not moved. When a
+re-read file adds or removes a declared name, an edge from a file this build never opened
+may have become right or wrong, and at syntactic precision there is no way to know which —
+so the build reads everything. That is the "affected context-resolution units" half of 17.8
+taken conservatively rather than approximately.
+
+Two things this exposed that had nothing to do with reuse. A file the source no longer holds
+now takes its records with it: nothing else would ever remove them, because they belong to a
+source unit no scan will name again. And a build that reuses everything commits no
+generation — committing one anyway would make every run look like a change to whatever
+watches the file.
+
+Then the correctness question. An incremental build resolved names against only the files it
+re-read, so a call into a file it skipped stopped resolving and its edge was dropped — and
+the next full rebuild put it back. A graph that depends on how it was built rather than on
+what the source says is the one thing a database of facts must never be.
+
+It was spotted in the numbers rather than by a test: a comment-only edit to one file reported
+33 edges deleted **and 33 created**, which is what dropping and re-minting cross-file calls
+looks like. References now resolve against reused files as well, the created half is gone,
+and a test that fails without the fix covers it.
+
+### An observation left open
+
+That same comment-only edit still reports 33 edges deleted with none created. Reuse is not
+supposed to change what the graph holds, so this is either a real difference between the
+incremental and full paths or a counting artifact, and it has not been run down.
+
+It is recorded rather than dismissed because the property at stake — an incremental build
+and a full build produce the same graph — is exactly the one the fix above was about, and
+half-checking it is how the other half stays hidden. The check to write is a test that builds
+a fixture tree incrementally and from scratch and compares the two graphs record for record.
+Until that exists, prefer `--rebuild` where the graph must be known to be exact.
+
 ### Not done, and what each needs
 
 | Remaining | Needs |
 | --- | --- |
 | `link refresh` | the GitHub provider in Stage 9. A local link has no snapshot to advance |
-| incremental skipping | PRD 17.8. A rebuild currently re-reads every file. The digests and the source revision needed to skip unchanged ones are already recorded; what is missing is the comparison and the two cache keys in 17.7 |
+| the open observation above | a test comparing an incrementally built graph with a freshly built one, record for record |
+| the cache keys in 17.7 | reuse currently compares digests against the graph. The three published cache-key shapes, and the project and user caches they sit in, are not built |
 | AI enrichment | the analysis packet in 17.5 and a provider. `plan` already produces the budget check it has to pass |
 | `apply` | a `GraphChangeSet` on disk, which needs the `change_set_version` contract that is still deferred |
 
