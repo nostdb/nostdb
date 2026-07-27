@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-28
 
-Current stage: `Stage 8 IN_PROGRESS` (increment 1 of 4)
+Current stage: `Stage 8 IN_PROGRESS` (increment 1 of 4 complete; increment 2 is next)
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification, Engine, and command-surface repositories `nostdb-spec`,
@@ -1163,7 +1163,7 @@ Stage 8 is taken in four increments, for the same reason Stages 5 through 7 were
 
 | Increment | Content | Status |
 | --- | --- | --- |
-| 1 | connect `nostdb-server` as scaffolding; the local protocol and catalog contracts in `nostdb-spec` | IN_PROGRESS |
+| 1 | connect `nostdb-server` as scaffolding; the local protocol and catalog contracts in `nostdb-spec` | DONE |
 | 2 | the daemon: the endpoint, the one-instance OS lock, the OS-user boundary, and catalog persistence | PENDING |
 | 3 | sessions, transaction isolation, query timeouts, per-session resource limits, recovery, and stale-session cleanup | PENDING |
 | 4 | the client side in `nostdb-cli`: `server start|status|stop|run`, `catalog add|remove|list`, and `--database @name` | PENDING |
@@ -2097,6 +2097,97 @@ the GitHub provider that arrives in Stage 9: a local link is read live and has n
 to advance. What remains inside
 `build` is optimization and enrichment rather than correctness: it produces a correct
 database today, and re-reads files it could skip.
+
+## Stage 8 increment 1 verification
+
+Passed on 2026-07-28 in `nostdb-spec` at `bb7c5eb`, with `nostdb-core` at `96011ce`,
+`nostdb-cli` at `36edb62`, and `nostdb-server` at `f05de0b`.
+
+47 tests in the specification harness. `./scripts/verify-workspace.sh` passes over all four
+pins and reports the two new suites:
+
+```text
+catalog conformance: accepted fixtures verified
+catalog conformance: rejected fixtures verified
+catalog conformance: 11 rejection rules verified
+server conformance: accepted fixtures verified
+server conformance: rejected fixtures verified
+server conformance: 11 refusal rules verified
+```
+
+It also reports what the ownership resolution was built to make visible:
+
+```text
+diagnostic ownership: nostdb-server awaits an implementation for CATALOG_INVALID
+CATALOG_VERSION_UNSUPPORTED SERVER_ALREADY_RUNNING SERVER_PROTOCOL_UNSUPPORTED
+```
+
+### Acceptance criteria
+
+| Criterion | Evidence |
+| --- | --- |
+| `nostdb-server` connected and pinned | `f05de0b`, child CI green, recursive clone verified at the pin |
+| `catalog_version` 1 published | `docs/CATALOG.md`, 15 fixtures, 11 rejection rules each with one |
+| `server_protocol_version` 1 published | `docs/SERVER_PROTOCOL.md`, 19 fixtures, 11 refusal rules each with one |
+| the two PRD section 28 server codes registered | owned by `nostdb-server`, and removed from the deferral list in the same change |
+| no code registered without an owner the verifier can check | closed owner list, rejected by the `nostdb-spec` suite |
+
+### Two rules that are deliberately the opposite of the settings contract
+
+A catalog `path` MUST be absolute; a project settings `database` path MUST be relative. The
+two documents answer to different things, and the contract says so where an implementer will
+look: a project document is committed and shared, so it must not carry one machine's layout,
+while a catalog is per user and resolved from whatever working directory the caller was in, so
+a relative path in one has no anchor.
+
+A catalog also has no merge. Settings merge a global document under a project one; a name means
+one thing per machine per user, so there is no second document to merge.
+
+### A stale entry is not a malformed catalog
+
+An entry whose target is absent, unreadable, or not a database stays in the catalog, and the
+failure is reported against the operation that used it. Refusing the document instead would
+mean one unplugged disk takes every named database on the machine with it. The contract states
+this before the shape, because it is the rule most likely to be implemented the other way by
+someone validating a document member by member.
+
+### The protocol carries a result envelope and defines none
+
+`result` in a query response is a `result_version` envelope, verbatim. The contract states no
+field of it. The daemon calls the Engine, receives the envelope the Engine built, and forwards
+it, so there is one implementation of a published shape rather than two that drift on the
+first change to either.
+
+The same rule covers diagnostics: the daemon MUST NOT translate an Engine code into one of its
+own, and MUST NOT add a code for a failure the Engine already named. That is why only two of
+the eleven refusals in section 8 carry a code at all.
+
+### What the conformance suite found rather than confirmed
+
+The suite failed on the refusal fixture. A `refused` message states no
+`server_protocol_version`, and the rule as first written required every message after the
+handshake to carry one.
+
+The fixture was right and the rule was incomplete: a refusal is the one message sent when the
+two sides have just established that they share no version, so there is no negotiated version
+to name, and stating one would be a claim about a language neither agreed to speak. Section 4
+now says this, and the test encodes the exception with the reason instead of letting a missing
+version pass everywhere.
+
+`hello` and `refused` are therefore both exceptions, for different reasons: one cannot know a
+version yet, the other has established there is none.
+
+### Deferred out of increment 1
+
+- `SERVER_ALREADY_RUNNING` has no fixture, and the suite records why: it is a lifecycle
+  outcome reported when a start request finds a healthy daemon, which is a running process
+  rather than a document. Section 2.1 states it and increment 2 proves it with a lifecycle
+  test;
+- framing, endpoint permissions, the one-daemon lock, and session isolation are behavioral and
+  are not expressible as a JSON document. Section 10 says so outright rather than leaving a
+  reader to assume the fixtures cover them;
+- `credentials_version` stays deferred. The protocol has no credential to define, because the
+  operating system authenticates and section 1.2 forbids adding one.
 
 ## Stage 7 increment 4 verification
 
