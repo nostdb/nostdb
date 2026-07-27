@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-28
 
-Current stage: `Stage 8 IN_PROGRESS` (increments 1 and 2 of 4 complete; increment 3 is next)
+Current stage: `Stage 8 IN_PROGRESS` (increments 1 to 3 of 5 complete; increment 4 is next)
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification, Engine, and command-surface repositories `nostdb-spec`,
@@ -1165,8 +1165,24 @@ Stage 8 is taken in four increments, for the same reason Stages 5 through 7 were
 | --- | --- | --- |
 | 1 | connect `nostdb-server` as scaffolding; the local protocol and catalog contracts in `nostdb-spec` | DONE |
 | 2 | the daemon: the endpoint, the one-instance OS lock, the OS-user boundary, and catalog persistence | DONE |
-| 3 | sessions, transaction isolation, query timeouts, per-session resource limits, recovery, and stale-session cleanup | PENDING |
-| 4 | the client side in `nostdb-cli`: `server start|status|stop|run`, `catalog add|remove|list`, and `--database @name` | PENDING |
+| 3 | framing, version negotiation, and message decoding | DONE |
+| 4 | sessions, transaction isolation, query timeouts, per-session resource limits, recovery, and stale-session cleanup | PENDING |
+| 5 | the client side in `nostdb-cli`: `server start|status|stop|run`, `catalog add|remove|list`, and `--database @name` | PENDING |
+
+### Scope amendment: increment 3 split in two
+
+Stage 8 was scoped in four increments and is now five. Increment 3 was "sessions, transaction
+isolation, query timeouts, per-session resource limits, recovery, and stale-session cleanup",
+and the wire protocol was not named in any increment because it looked like part of sessions.
+
+It is not part of sessions; it is underneath them. A session spans messages, which is why
+section 3 says the protocol is not request-per-connection, so nothing about a session can be
+built before framing and negotiation exist. Splitting it is not a narrowing: the wire protocol
+is separately verifiable against nine of the eleven refusal rows section 8 publishes, and
+sessions turned out to be blocked on a design question the message loop had to exist to pose.
+
+That question is recorded below. This is the same reason Stage 7 split its first increment in
+two after inspecting the work rather than before.
 
 ### Authorized scope
 
@@ -2097,6 +2113,100 @@ the GitHub provider that arrives in Stage 9: a local link is read live and has n
 to advance. What remains inside
 `build` is optimization and enrichment rather than correctness: it produces a correct
 database today, and re-reads files it could skip.
+
+## Stage 8 increment 3 verification
+
+Passed on 2026-07-28 in `nostdb-server` at `5d67829`, with `nostdb-spec` at
+`bb7c5eb`, `nostdb-core` at `96011ce`, and `nostdb-cli` at `36edb62`.
+
+45 unit tests and 6 conformance tests in the daemon. `./scripts/verify-workspace.sh` exits 0
+over all four pins and reports the protocol suite:
+
+```text
+server conformance: 2 published replies verified
+server conformance: 1 handshakes and 4 requests verified
+server conformance: deferred, peer_is_another_user (held structurally by the endpoint's directory mode)
+server conformance: deferred, unknown_session (needs a session registry, which arrives with sessions)
+server conformance: 9 refusal rules verified
+```
+
+### Acceptance criteria
+
+| Criterion | Evidence |
+| --- | --- |
+| framing | a 4-byte big-endian prefix, two frames on one connection, and a byte-order test so a change is a failure rather than a silent incompatibility |
+| an over-long frame is refused before allocating | the length is compared to the maximum before any buffer is sized; the test supplies four bytes of prefix and no body |
+| version negotiation | the highest common version, and a refusal naming the supported set |
+| the published refusals | 9 of 11 rules verified against the fixtures by declared rule, not merely by refusing |
+| a refusal carries a code only where the contract assigns one | proven in both directions: the version refusal carries it, the other ten carry none |
+| the daemon's own replies match the published shapes | `welcome` and `refused` compared against the fixtures as whole documents |
+
+### A refusal names its rule, so the fixtures can check it
+
+Each refusal carries the section 8 row it came from. That is what makes the suite compare a
+fixture's declared `rule` against what the decoder actually reported, rather than checking that
+something was refused.
+
+The difference matters: a decoder that reported every malformed message as one rule would satisfy
+"it was refused" and tell a client nothing about what to fix. Two of the rules are about *where*
+a message arrived rather than what it holds — a perfectly well-formed request is still refused as
+the first message on a connection — so the suite names the entry point per rule instead of
+inferring it from the document.
+
+### Two rules this suite cannot decide, reported rather than skipped
+
+`unknown_session` needs a session registry, and `peer_is_another_user` is held by the endpoint's
+directory mode rather than by anything in a message. A document-driven suite cannot decide either.
+
+The suite prints both with the reason, and **fails** on a fixture whose rule is in neither its
+decidable table nor its deferred table, so a rule added to the contract cannot quietly go
+unchecked.
+
+### The root verifier was hiding exactly those lines
+
+The deferral reporting did not reach the workspace verifier's output. That verifier surfaces a
+child suite's lines by filtering for `verified`, and a line saying what a suite did **not** cover
+does not contain that word.
+
+So the discipline of reporting a partial cap was defeated by the filter meant to surface it: nine
+of eleven rules would have been reported as nine `verified` lines with nothing saying two were
+outstanding. The filter now surfaces `deferred` as well, which also revealed that the `.nost`
+suite has been reporting a deferral of its own that nobody was seeing.
+
+### The finding that blocks sessions: a transaction cannot outlive a lexical region
+
+`Transaction<'a>` in the Engine holds `&'a mut Database`. A session that keeps a transaction open
+across socket reads would therefore have to hold both the database and a transaction borrowing it
+in one structure, which Rust does not allow without a self-referential construction — meaning
+`unsafe` or a dependency, and an ADR under the root Rust standards for the first.
+
+`nostdb-cli` already met this and solved it: its REPL nests a second loop that owns the
+transaction and returns when it commits or rolls back. Its record calls that "not a workaround",
+because it makes the transaction's extent a lexical region, so there is no state in which the
+REPL believes it is in a transaction and is not.
+
+The daemon can do the same thing — a session that begins a transaction enters an inner loop
+reading that connection's messages until commit or rollback. That leaves one consequence to
+decide, and it is a contract question rather than an implementation detail:
+
+> While a connection is inside that inner loop it is serving one session. Section 6 does not say
+> a connection carries one session, and the `session_id` in section 5.1 implies it may carry
+> several. A transaction in one session would then stall every other session on the same
+> connection.
+
+Three ways out, none of them chosen yet:
+
+1. **amend section 6 to one session per connection.** Simplest, and it matches the only client
+   that exists: the CLI opens a connection, opens a session, and works in it. It makes
+   `session_id` redundant on the wire, which is a published field to remove or to keep as
+   confirmation;
+2. **keep multiplexing and publish that a transaction serializes its connection.** Honest, and it
+   makes a client's performance depend on something it cannot see;
+3. **give the Engine a session type that owns its database**, so a transaction need not borrow
+   one. The cleanest, and the only option that changes `nostdb-core` rather than the protocol.
+
+Recorded before acting, as the root `AGENTS.md` requires. Increment 4 needs this answered first,
+because all three change what the session code looks like.
 
 ## Stage 8 increment 2 verification
 

@@ -376,7 +376,11 @@ run_conformance_suite() {
     printf '%s\n' "$conformance_log" >&2
     exit 1
   fi
-  printf '%s\n' "$conformance_log" | grep 'verified' | sed 's/^\.*//'
+
+  # `deferred` is surfaced alongside `verified`. A suite that covers nine of eleven rules and
+  # reports only the nine reads as covering all of them, and this filter was hiding exactly the
+  # lines a suite prints to say what it did not cover.
+  printf '%s\n' "$conformance_log" | grep -E 'verified|deferred' | sed 's/^\.*//'
 }
 
 if [ -d nostdb-spec/fixtures ]; then
@@ -390,6 +394,7 @@ if [ -d nostdb-spec/fixtures ]; then
   done
 
   run_conformance_suite nostdb-server catalog_conformance
+  run_conformance_suite nostdb-server server_conformance
 fi
 
 git diff --check
