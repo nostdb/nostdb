@@ -1382,12 +1382,12 @@ the only rule that cannot silently weaken a declaration the author wrote.
 Increment 4 is larger than the three before it put together. It is being taken in parts,
 and this records what is done, what is not, and why the split falls where it does.
 
-Done, at `nostdb-spec` `8b7f458`, `nostdb-core` `a7691ee`, and `nostdb-cli` `ab5e644`:
+Done, at `nostdb-spec` `89fcd66`, `nostdb-core` `96011ce`, and `nostdb-cli` `36edb62`:
 link resolution and recursive federation in Core, federated queries, `link list`, `link
 check`, `sync`, and `link add` and `link remove` through the multi-file journal, and the source scanner with
-its hand-written Git-ignore matcher, `plan`, the Rust structural analyzer, and `build`.
-`./scripts/verify-workspace.sh` passes over all three pins, with 679 tests in the Engine
-and 118 in the command surface.
+its hand-written Git-ignore matcher, `plan`, the Rust structural analyzer, `build`, and `apply`.
+`./scripts/verify-workspace.sh` passes over all three pins, with 683 tests in the Engine
+and 124 in the command surface.
 
 ### Recorded decision: resolution reports rather than fails
 
@@ -1870,6 +1870,34 @@ supplied to `Project::open` — that file lives in the user's `.nostdb`, which i
 their cache tier is. Asking a caller for the same directory twice would be two places to get
 it wrong.
 
+### `apply`, and the contract it needed
+
+`change_set_version` 1 is authored, which unblocked the last command this increment scoped
+that was not waiting on another Stage. The document says two things before it says anything
+else, and both were the reason to write it rather than infer it from the in-memory type:
+
+- **a change set is a proposal, not a transaction.** Satisfying every rule in the document
+  does not make it apply. A producer must not be able to widen its own authority by writing
+  a well-formed file, so everything a database would decide stays outside the document
+  rules;
+- **one set carries one owner.** A refresh replaces only its own producer's contributions,
+  so two owners in one document would mean two replacement scopes in one transaction, and a
+  failure partway through would leave a state neither producer asked for.
+
+The decoder delegates every batch rule — an empty set, a repeated identifier, two link
+operations in conflict — to the in-memory validator rather than restating it. Two
+implementations of one rule is two answers waiting to diverge.
+
+`apply` keeps two refusals apart, because they mean different things to whoever hits them. A
+document that breaks the contract exits 3 and reports **every** problem at once, so a batch
+is fixed in one pass rather than one failed run per mistake. A document that is well formed
+and cannot be applied is the other kind, and an unreadable version says so without also
+naming a malformed operation that is not there.
+
+Twelve fixtures, and the rejection test checks the declared **code** rather than only the
+refusal. The workspace verifier now runs the suite, which is what makes the published set a
+gate rather than documentation.
+
 ### Not done, and what each needs
 
 | Remaining | Needs |
@@ -1877,10 +1905,10 @@ it wrong.
 | `link refresh` | the GitHub provider in Stage 9. A local link has no snapshot to advance |
 | per-file reuse | understanding why resolving against a fresh index and a recorded one together loses edges that a single index finds. The graph-comparison tests are in place and are what a second attempt has to pass |
 | AI enrichment | the analysis packet in 17.5 and a provider. `plan` already produces the budget check it has to pass |
-| `apply` | a `GraphChangeSet` on disk, which needs the `change_set_version` contract that is still deferred |
 
-Every command this increment scoped is now implemented except `link refresh` and `apply`,
-which are blocked on Stage 9 and on an unauthored contract respectively. What remains inside
+Every command this increment scoped is now implemented except `link refresh`, which needs
+the GitHub provider that arrives in Stage 9: a local link is read live and has no snapshot
+to advance. What remains inside
 `build` is optimization and enrichment rather than correctness: it produces a correct
 database today, and re-reads files it could skip.
 

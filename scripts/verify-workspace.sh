@@ -280,7 +280,7 @@ if [ -f nostdb-core/Cargo.toml ] && [ -d nostdb-spec/fixtures ]; then
     exit 1
   fi
 
-  for suite in container_conformance nost_conformance cypher_conformance settings_conformance result_conformance; do
+  for suite in container_conformance nost_conformance cypher_conformance settings_conformance result_conformance change_set_conformance; do
     conformance_log=$(
       NOSTDB_SPEC_FIXTURES="$workspace_root/nostdb-spec/fixtures" \
         cargo test --quiet --manifest-path nostdb-core/Cargo.toml \
