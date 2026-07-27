@@ -1382,11 +1382,11 @@ the only rule that cannot silently weaken a declaration the author wrote.
 Increment 4 is larger than the three before it put together. It is being taken in parts,
 and this records what is done, what is not, and why the split falls where it does.
 
-Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `dfa7d3d`, and `nostdb-cli` `a4ae66d`:
+Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `8f8db9c`, and `nostdb-cli` `a4ae66d`:
 link resolution and recursive federation in Core, federated queries, `link list`, `link
-check`, `sync`, and `link add` and `link remove` through the multi-file journal.
-`./scripts/verify-workspace.sh` passes over all three pins, with 509 tests in the Engine
-and 101 in the command surface.
+check`, `sync`, and `link add` and `link remove` through the multi-file journal, and the source scanner with
+its hand-written Git-ignore matcher. `./scripts/verify-workspace.sh` passes over all three
+pins, with 544 tests in the Engine and 101 in the command surface.
 
 ### Recorded decision: resolution reports rather than fails
 
@@ -1555,19 +1555,66 @@ and a local link is read live at every query and has no snapshot to advance. Imp
 it against a local source would mean inventing a meaning the product contract does not give
 it, so it waits for the GitHub provider in Stage 9. The message and its test now say that.
 
+### Recorded decision: analyzers are hand-written and take no dependency
+
+This is the decision the Stage had not made, and the user made it: no dependency, and the
+best-performing option available.
+
+That means no `tree-sitter`, no `syn`, and no ignore-matching crate. Every parser the
+Engine needs is written here. The choice is consistent with what the repository already
+does — the `.nost` lexer and parser and the Cypher parser are both hand-written — and it
+keeps the dependency documentation requirement in `AGENTS.md` from growing a transitive
+tree for each language added.
+
+What it costs is stated plainly rather than discovered later. A hand-written analyzer per
+language is a large, ongoing body of work, and its precision is lower than a full grammar's
+for the same effort. That is survivable only because the analyzer contract already requires
+each analyzer to *declare* its precision: `PrecisionClass::DeterministicSyntactic` for a
+skim of item structure is an honest claim, where presenting the same result as
+`DeterministicSemantic` would not be. Section 17.3 requires that declaration, and this
+decision is what makes it load-bearing rather than decorative.
+
+The first consequence landed with the scanner. Git's ignore syntax is a closed, stable set,
+so the matcher is stated in `ignore.rs` — last match wins, trailing `/` for directories
+only, an interior `/` anchoring, `*` and `?` stopping at a separator where `**` does not,
+character classes, escapes, and per-directory precedence — rather than delegated. A rule
+that excludes a path in Git and includes it here would analyze a file the user believed was
+gone, so approximating it would be worse than not implementing it.
+
+### The scanner, and what running it on this workspace found
+
+`scan` walks a tree and reports which files a build may analyze and, for each file it may
+not, why. Every exclusion is a coverage record. A scanner that quietly omits a file reports
+a build that covered everything when it did not, and nobody reading the report can tell.
+
+Recording a symlink that was not followed needed a new `SkipReason`. Following is off by
+default, which section 17.2 requires, so a project keeping real source behind a link would
+otherwise have shown full coverage over a subtree that was never read.
+
+Cycle detection sits in the directory walk rather than the symlink branch, so a link to its
+own ancestor is caught on the first hop rather than after going round once. The visited set
+is only maintained when following is enabled: without links a tree cannot contain a cycle,
+and canonicalizing every directory to prove that is a syscall per directory paid for
+nothing.
+
+Running it over this workspace found one defect and confirmed one non-defect. The defect: a
+submodule's `.git` is a file holding a gitlink, not a directory, so the directory prune list
+never saw it and it reached the report as unclassified. The non-defect: 318 unclassified
+files, almost all of them this project's own `.expected`, `.cypher`, and `.hex` conformance
+fixtures. Those genuinely have no language this build can name, and saying so is the
+correct answer rather than a gap.
+
 ### Not done, and what each needs
 
 | Remaining | Needs |
 | --- | --- |
 | `link refresh` | the GitHub provider in Stage 9. A local link has no snapshot to advance |
-| `build`, `plan` | the analysis pipeline in `docs/PRD.md` section 17: scanning, ignore handling, a deterministic analyzer, caching, and a `BuildPlan`. This is the largest single body of work left in the Stage |
+| `plan`, `build` | the scanner is in. Still needed: a `BuildPlan`, the structural parse and context resolution cache keys, a first hand-written analyzer, and the atomic replacement of analyzer-owned contributions |
 | `apply` | a `GraphChangeSet` on disk, which needs the `change_set_version` contract that is still deferred |
 
-What remains is three commands. `build` and `plan` are the largest single body of work
-left in the Stage and arguably belong to one of their own: the analysis pipeline needs
-scanning, ignore handling, a deterministic analyzer for at least one language, caching,
-and a `BuildPlan`, and choosing the parsing technology is itself a decision this Stage has
-not made.
+Scanning and ignore handling are done. `build` and `plan` remain the largest single body of
+work left in the Stage, and the parsing-technology decision that blocked them is now made
+and recorded above.
 
 ## Stage 7 increment 3 verification
 
