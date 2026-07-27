@@ -435,7 +435,6 @@ Conceptual Core types:
 ```rust
 pub struct LocalNodeId([u8; 16]);
 pub struct LocalEdgeId([u8; 16]);
-pub struct StableModuleId([u8; 16]);
 
 pub struct ScopedNodeId {
     pub source: CanonicalSourceLocator,
@@ -491,16 +490,20 @@ database. A linked node is identified in a logical union by:
 
 The target database's internal identity is not used for link resolution.
 
-Analyzed modules receive a persisted `StableModuleId`. Source path, package
-path, and repository URL are mutable locators associated with that ID. On
-rename, the Engine may use provider-native rename information, content hashes,
-and unambiguous structural evidence to preserve the module ID. If preservation
-is ambiguous, it MUST create a new identity rather than silently merging two
-entities.
+A minted identifier is a UUID version 7, written as a kind prefix followed by
+the canonical UUID text. The prefix keeps a node identifier from being accepted
+where an edge identifier is required. An identifier a user states in `.nost` uses
+the same form, so every implementation reads it identically.
 
-An analyzer-owned entity is matched through a versioned analyzer namespace,
-Stable Module ID, and semantic symbol key. A user-authored `.nost` entity may
-declare its opaque ID explicitly.
+Source path, package path, and repository URL are mutable locators, never an
+identity. On rename, the Engine may use provider-native rename information,
+content hashes, and unambiguous structural evidence to preserve a record's
+identity. If preservation is ambiguous, it MUST create a new identity rather
+than silently merging two entities.
+
+An analyzer-owned entity is matched through a versioned analyzer namespace and a
+semantic symbol key. A user-authored `.nost` entity may declare its opaque ID
+explicitly, and omitting it lets the Engine mint one.
 
 ### 11.3 Contributions and ownership
 
@@ -630,31 +633,49 @@ Multi-file source layouts may be added later without changing graph semantics.
 The exact EBNF belongs to `nostdb-spec`. The required semantic shape is:
 
 ```nost
-@nost 1
+@nost 2
 
 @link "./packages/child"
 @link "./packages/shared" as shared
 @link "github://example/platform/graphs/root.nostdb?ref=main" as platform
 
-module auth id "m_01J..." source "src/auth.rs" {
-  node login id "n_01J..." :Function {
-    name: "login"
-    language: "rust"
-  }
-
-  node database id "n_01K..." :Database {
-    name: "primary"
-  }
-
-  edge login_calls_database id "e_01J..." :CALLS (login -> database) {
-    confidence: "extracted"
-  }
-
-  edge login_calls_shared id "e_01K..." :CALLS (login -> shared::authorize) {
-    confidence: "inferred"
-  }
+schema Function {
+  name: string,
+  language?: string,
+  labels?: string[],
 }
+
+schema Database {
+  name: string,
+}
+
+node login: Function {
+  id: "n_0198a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+  name: "login",
+  language: "rust",
+}
+
+node database: Database {
+  name: "primary",
+}
+
+edge login -> database :CALLS {}
+
+edge login -> shared::authorize :CALLS {}
 ```
+
+A Schema declares the typed fields a record of that kind carries, and its name
+is that record's label. A record MAY name no Schema, in which case the name is
+an unvalidated label. A Node MAY name several Schemas; an Edge names exactly
+one, because an Edge has exactly one relation type.
+
+Schema validation is soft and records warnings, as section 11.6 requires.
+Explicit Constraints remain hard.
+
+`id` and `labels` are reserved property keys. `id` carries the opaque record
+identifier and MAY be omitted, in which case the Engine mints one. `labels`
+carries additional labels beyond the Schema name, and a Schema must declare the
+field before its records may use it.
 
 Both link forms are valid:
 
@@ -730,7 +751,7 @@ Synchronization MUST:
   hashes;
 - preserve the prior database on failure;
 - preserve comments during canonical reserialization;
-- never modify imported read-only modules;
+- never modify records reached through a link, which are read-only;
 - report create, update, delete, and unresolved deltas.
 
 ## 15. Source and graph-store providers
@@ -961,6 +982,11 @@ Deterministic analyzers SHOULD extract, where the language allows:
 - configuration-defined entry points;
 - source ranges and content hashes.
 
+Each of these is an ordinary Node or Edge. A module in this list is a module of
+the analyzed programming language, extracted like any other record; it is not a
+container the graph model treats specially, and `.nost` has no module
+declaration.
+
 Structural analysis of supported files uses zero external AI tokens.
 
 ### 17.5 AI analysis packet
@@ -971,14 +997,18 @@ compact, versioned packet from the Engine:
 ```rust
 pub struct AnalysisPacket {
     pub packet_version: u32,
-    pub module_id: StableModuleId,
+    pub source_unit: SourceUnitId,
     pub symbols: Vec<SymbolSummary>,
     pub structural_edges: Vec<EdgeSummary>,
     pub unresolved_references: Vec<ReferenceSummary>,
     pub selected_evidence_spans: Vec<SourceExcerpt>,
-    pub neighboring_modules: Vec<ModuleSummary>,
+    pub neighboring_units: Vec<SourceUnitSummary>,
 }
 ```
+
+A packet is anchored on the source unit it was derived from, which is the same
+unit a `Contribution` names. Anchoring both on one identity is what lets an
+analyzer refresh replace exactly the contributions its previous run produced.
 
 AI enrichment is prioritized for:
 
@@ -1057,7 +1087,7 @@ pub struct StructuralParseCacheKey {
 }
 
 pub struct ContextResolutionCacheKey {
-    pub module_id: StableModuleId,
+    pub source_unit: SourceUnitId,
     pub parse_artifact_digest: String,
     pub dependency_context_digest: String,
     pub resolver_digest: String,

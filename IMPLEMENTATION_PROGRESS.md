@@ -1,8 +1,8 @@
 # NostDB Implementation Progress
 
-Last updated: 2026-07-26
+Last updated: 2026-07-27
 
-Current stage: `Stage 7 IN_PROGRESS` (increment 1 of 3)
+Current stage: `Stage 7 IN_PROGRESS` (increment 1 of 4)
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification and Engine repositories `nostdb-spec` and `nostdb-core` are
@@ -1098,7 +1098,7 @@ Stage 7 is taken in four increments, for the same reason Stages 5 and 6 were.
 
 | Increment | Content | Status |
 | --- | --- | --- |
-| 1 | connect `nostdb-cli` as scaffolding; settle the `.nost` identifier contract; `.nost` to graph conversion in both directions | IN_PROGRESS |
+| 1 | connect `nostdb-cli` as scaffolding; `.nost` language version 2; `.nost` to graph conversion in both directions | DONE |
 | 2 | the settings contract, then `help`, `init`, `check`, `convert`, `export`, and the exit classes | not started |
 | 3 | the result envelope contract, then `query` in immediate mode, the multiline REPL, and table, JSON, JSONL, and CSV output | not started |
 | 4 | link resolution and recursive federation in Core, then `link add|remove|list|check|refresh`, `build`, `plan`, `apply`, and `sync` | not started |
@@ -1116,11 +1116,17 @@ Stages 7 through 12 in one grant rather than per repository. `nostdb-cli` is cre
 increment; the rest are created by the Stage that first needs them, as the Stage table
 records.
 
-### Why the identifier contract comes first
+### Why the language contract comes first
 
 `nostdb convert` is in this Stage, and it cannot turn a stated `.nost` identifier into a
-record identifier until the contract says what one looks like. See the conflict recorded
-below.
+record identifier until the contract says what one looks like. Checking that turned up a
+second conflict, and answering both took the language to version 2. Both conflicts and the
+resulting design are recorded below.
+
+Increment 1 is therefore larger than first estimated. It is still one increment rather than
+two, because the grammar change, the fixture rewrite, and the conversion it exists to enable
+are not separately verifiable: a fixture suite half-way between two language versions proves
+nothing.
 
 ### Deferred out of increment 1
 
@@ -1131,10 +1137,10 @@ below.
 - `build`, `plan`, `apply`, and `sync`, which need the analysis pipeline and link resolution;
 - `catalog`, `server`, `plugin`, and `view`, which belong to Stages 8, 11, and 12.
 
-## Open conflict: the `.nost` record identifier
+## Resolved conflict: the `.nost` record identifier
 
 Found while checking what Stage 7 needs. Recorded before acting, as the root `AGENTS.md`
-requires, and the current valid behavior is unchanged.
+requires. Resolved by the owner on 2026-07-27; see the resolution at the end of this section.
 
 ### The conflict
 
@@ -1174,20 +1180,37 @@ a `LocalNodeId`, and every published valid fixture would be refused.
    identifier a `.nost` file states is read by every implementation, so an unspecified form is
    exactly the divergence `nostdb-spec` exists to prevent.
 
+### The resolution
+
 Resolution 1 is taken, because `docs/PRD.md` section 11.2 already describes an opaque
 identifier a user *may* declare, and its own illustrative syntax writes one as `"n_01J..."`.
 It lands in Stage 7 increment 1, which is where conversion first needs it.
 
-Constraining the form does invalidate a `.nost` file that stated `id "n_1"`, which version 1
-accepted as a string. That is recorded as completing version 1 rather than bumping it, for the
-same reason the query subset was: the form was never specified, so no implementation could
-have relied on it, and leaving it unspecified is the defect being fixed.
+Two details of it changed when the owner settled the wider language shape on 2026-07-27, so
+the resolution is recorded as amended rather than as first written:
 
-## Open conflict: a `.nost` module has nowhere to go in `.nostdb`
+- the identifier is no longer an `id_clause` in declaration position. It is the reserved
+  property key `id`, so "a user *may* declare it" is expressed by omitting a field rather
+  than by an optional grammar production;
+- the body is a UUID version 7 in canonical text rather than 26 Crockford base32 characters.
+  That part overturns a decision Stage 6 recorded; see `Reversed decision: identifier
+  minting` below.
+
+The kind prefix survives both changes. `LocalNodeId::from_str` refuses an edge identifier
+today, which `id::tests::a_kind_prefix_is_required_and_not_interchangeable` asserts, and
+dropping the prefix would delete that guarantee for nothing.
+
+Constraining the form does invalidate a `.nost` file that stated `id "n_1"`, which version 1
+accepted as a string. That is folded into the version 2 bump recorded below rather than
+treated as completing version 1, because version 2 breaks those files for a larger reason
+anyway.
+
+## Resolved conflict: a `.nost` module has nowhere to go in `.nostdb`
 
 Found immediately after the identifier conflict, while starting the conversion work.
 Recorded rather than guessed at, because unlike the identifier form the root PRD points in
-two directions at once.
+two directions at once. Resolved by the owner on 2026-07-27, and not by either recorded
+option; see the resolution at the end of this section.
 
 ### The conflict
 
@@ -1232,6 +1255,264 @@ shape, so it is recorded and left open rather than taken here.
 
 Stage 7 increment 1 is blocked on it. Nothing in the workspace depends on the answer yet,
 and the current valid behavior is unchanged.
+
+### The resolution: a fourth option
+
+The owner took neither recorded option. A module is not represented in `.nostdb` because
+**the concept is removed from the product**. A database holds Nodes, Edges, and Links, and
+`.nost` has no module declaration to convert.
+
+That is close to recorded resolution 3, which this document had rejected on sight for making
+a documented round trip lossy. The rejection assumed the grammar would keep requiring a
+module block while the database dropped it, which is what makes a round trip lossy. Removing
+the declaration from the language too removes the thing that would have been lost, so the
+objection does not apply to what was actually chosen. Recording that distinction matters
+more than being consistent with the earlier dismissal.
+
+Nothing about source location is lost with it. A module's `source "src/auth.rs"` duplicated
+what `Evidence` already carries per record, and `Evidence` carries it more precisely, with a
+path, a range, and a content digest.
+
+`StableModuleId` goes with the concept. It is removed from `nostdb-core/src/id.rs` and from
+`docs/PRD.md` sections 11.2, 17.5, and 17.7.
+
+### A consequence this leaves open
+
+`docs/PRD.md` section 11.2 says an analyzer-owned entity is matched through "a versioned
+analyzer namespace, Stable Module ID, and semantic symbol key". Removing `StableModuleId`
+deletes the middle term of that triple, and nothing yet replaces it.
+
+Incremental rebuild is what needs the answer, and that is Stage 10 rather than this one, so
+it is recorded here instead of being invented now. No current behavior depends on it: no
+analyzer runs yet, so nothing matches an entity across builds today.
+
+## The `.nost` language version 2
+
+Removing the module declaration cannot be done alone: it changes the file's top level, so
+every fixture is rewritten either way. The owner used that opening to settle the whole
+declaration shape at once, on 2026-07-27. This section records what was decided and why, so a
+later reader does not have to reconstruct it from the grammar.
+
+The shape:
+
+```nost
+@nost 2
+
+@link "./packages/child" as child
+
+schema project {
+  name: string,
+  version: double,
+  labels?: string[],
+}
+
+schema authority {
+  scope: string,
+}
+
+schema CONTAINS (project -> feature) {
+  since?: datetime,
+}
+
+node foo: project, authority {
+  id: "n_0198a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+  name: "nostdb",
+  version: 0.1,
+  scope: "admin",
+  labels: ["Entity"],
+}
+
+edge foo -> login :CONTAINS {
+  since: datetime"2026-07-27T00:00:00Z",
+}
+```
+
+### Why version 2 rather than completing version 1
+
+Version 1 was completed rather than superseded twice before, both times because the thing
+being changed had never been specified, so no implementation could have relied on it.
+
+That reasoning does not reach here. The module declaration was specified in
+`docs/NOST_LANGUAGE.md` section 5.3, required by the normative EBNF, and exercised by all
+nine accepted fixtures. An implementation could have relied on it, and removing it breaks
+every version 1 file. `nost_language_version` therefore becomes 2, and an implementation that
+reads `@nost 1` refuses it with `NOST_VERSION_UNSUPPORTED` rather than guessing.
+
+Only `nost_language_version` moves. The `.nostdb` format, settings, provider, plugin, and
+server versions are independent and none of them changes, which is the rule
+`nostdb-spec/AGENTS.md` states about never letting one version bump imply another.
+
+### The decisions and what each one buys
+
+| Decision | Why |
+| --- | --- |
+| A module declaration is removed | The owner's product call. See the resolved conflict above |
+| `schema` becomes a declaration, and a node names one or more of them | `docs/PRD.md` section 11.6 already required Schemas to validate nodes, edges, labels, properties, and endpoints. Nothing implemented it, and `.nost` could not express it at all |
+| A schema name is a label | `Node.labels` is unchanged, so `MATCH (n:project)` works with no new query syntax and the model's at-least-one-label rule is satisfied without a special case |
+| An edge carries exactly one schema | `Edge.relation` is one value. Allowing two would mean inventing a second relation concept the model does not have |
+| `id` and `labels` are reserved property keys | The owner's preference for one uniform "everything is a field" shape. It also deletes `id_clause` from the grammar, so "an identifier is optional" is expressed by omitting a field |
+| Fields separate with commas, and a trailing comma is accepted | The owner's call. Canonical output omits the trailing comma |
+| `?` marks an optional field, written on the key | `description?: string` says the key may be absent. `string?` would read as a nullable value, and a stored null is unrepresentable, so it would be a false signal |
+| Scalar types are `boolean`, `integer`, `double`, `string`, `bytes`, `datetime` | One name per model type keeps canonical output decidable. `double` rather than `float` because `PropertyValue::Float` holds an `f64` |
+| An array is `string[]`, and arrays do not nest | `PropertyValue::List` holds scalars only, so `string[][]` has nothing to represent it |
+| Contributions and evidence get `@by` and `@evidence` blocks | Without them, `.nostdb` to `.nost` silently drops ownership and provenance, and a round trip would collapse every contribution into `Owner::User`. That would break the section 11.3 guarantee that an analyzer refresh preserves user edits |
+
+### Two consequences accepted rather than solved
+
+A node may name a schema that was never declared, because a schema is optional and a schema
+name is just a label. A typo in a schema name is therefore indistinguishable from an
+intentional bare label, and it becomes an unvalidated label instead of an error. Nothing in
+the syntax can tell the two apart, and refusing an undeclared name would contradict the
+owner's decision that a schema is optional.
+
+An edge has no declaration name, because nothing referenced one: an endpoint names a node.
+Two identical `edge foo -> login :CONTAINS {}` declarations are then distinguishable only by
+`id`. The graph is a multigraph, so both are kept, and canonical output orders them
+deterministically.
+
+### Where two schemas disagree
+
+A node naming two schemas is validated against the union of their fields. If both declare the
+same key, the declared types must match, and a mismatch raises a diagnostic. If one marks the
+key optional and the other does not, the key is required. Requiring the stricter reading is
+the only rule that cannot silently weaken a declaration the author wrote.
+
+## Stage 7 increment 1 verification
+
+Passed on 2026-07-27 in `nostdb-spec` at `83d0dbd` and `nostdb-core` at `b470820`.
+
+Rust command set clean in both children: 396 unit tests plus 24 conformance and storage
+tests in the Engine, and 28 tests in the specification harness.
+
+`./scripts/verify-workspace.sh` passes over both new pins and reports:
+
+```text
+container conformance: 20 fixtures verified, 3 accepted and 17 rejected
+nost conformance: 18 accepted fixtures verified
+nost conformance: round trip verified, 11 comments preserved
+nost conformance: 17 graph round trips verified, 1 deferred pending link resolution
+nost conformance: 19 rejected fixtures verified
+nost conformance: 18 semantic fixtures verified
+cypher conformance: 10 semantic fixtures verified
+cypher conformance: 19 unsupported fixtures verified
+cypher conformance: 38 supported fixtures verified
+```
+
+### Acceptance criteria
+
+| Criterion | Met by |
+| --- | --- |
+| The published language is version 2, and version 1 is refused rather than parsed | `NOST_VERSION_UNSUPPORTED`, with a fixture for `@nost 1` specifically |
+| Every accepted fixture parses, validates without a diagnostic, and formats idempotently | 18 fixtures, 11 comments preserved |
+| Every rejected fixture is refused with a range | 19 fixtures, each at its re-recorded reference position |
+| Every semantic fixture raises exactly the code it declares | 18 fixtures, covering all five new codes |
+| A `.nost` document converts to a graph and back without losing content | 17 fixtures; the eighteenth is refused for a stated reason, not skipped |
+| A minted identifier is a UUID version 7 | asserted on the version nibble and the variant bits rather than on the text |
+| Schemas persist | written to container section 5 and read back from a real file on disk |
+| Ownership survives a round trip | an analyzer and a user contribution come back distinct, through a real `.nostdb` |
+| No fixture is copied into `nostdb-core` | the suite is read from `NOSTDB_SPEC_FIXTURES`, and the verifier fails without the confirmation line |
+| The Rust command set passes in both children | `cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, all `--all-targets --all-features` |
+
+### What the round trip actually guarantees
+
+Graph content round-trips exactly. The text does not, on the first pass, and cannot: a
+node's declaration name and the split between schema names and the reserved `labels`
+property are both file-local rather than graph data, and the model stores neither.
+Export regenerates the first from the record identifier and derives the second from
+which labels a Schema declares.
+
+Both are stable, so the second pass reproduces the first byte for byte. That fixed point
+is the guarantee, and it is the one synchronization needs; requiring byte equality on the
+first pass would be requiring the model to store something it deliberately does not.
+
+Conversion also orders the graph canonically: schemas by name, records by identifier,
+labels and keys by value, contributions by owner. Two things follow. The round trip is a
+fixed point at the graph level, because re-importing whatever order the canonical writer
+chose sorts back to the same one. And the same content written in any declaration order
+commits to identical bytes, which is what the digest comparison in section 14 rests on.
+
+Each of those four orderings was added because a fixture caught the round trip failing on
+it. That is the suite working rather than four separate oversights, and it is worth
+recording that none of them was found by reading the code.
+
+### Deferred out of increment 1, with the reason
+
+An aliased or locator endpoint names a declaration *inside a linked source*, and turning
+that name into a `ScopedNodeId` means opening that source. Link resolution is increment
+4, so importing one is refused with a typed error naming what it needs.
+
+The alternative was degrading it into a local Placeholder Node, which would export as a
+local endpoint and quietly turn `shared::authorize` into something else. Refusing is the
+same discipline the query subset applies: a construct outside what this build implements
+is reported rather than approximated.
+
+Export handles an external reference fine, because a `ScopedNodeId` already carries the
+identifier a locator needs. The asymmetry is real, and the conformance test counts the
+deferred fixture rather than passing over it.
+
+### A defect the idempotence test caught
+
+A trailing comment after the last property moved down one line on every format pass.
+Looking for the separating comma skips trivia, and skipping trivia files every comment as
+a *leading* one, so a same-line comment was handed to the next entry instead of the one it
+followed.
+
+Every individual output was valid and readable. Only comparing two passes showed it
+drifting, which is exactly what that test exists for.
+
+### A stale list the Schema work uncovered
+
+`name::RESERVED_WORDS` still held the version 1 set, so `PropertyKey::new("id")` failed.
+Since `id` is how a record states its identifier in version 2, conversion would have been
+unable to build the key for its own reserved property. Nothing else referenced the list,
+so nothing else noticed.
+
+### Still open
+
+`docs/PRD.md` section 11.2 said an analyzer-owned entity is matched through "a versioned
+analyzer namespace, Stable Module ID, and semantic symbol key". Removing `StableModuleId`
+deleted the middle term, and the amended section names the remaining two. Incremental
+rebuild is what needs a replacement, and that is Stage 10, so nothing is invented here.
+
+## Reversed decision: identifier minting
+
+Stage 6 increment 3 decided that identifiers are derived from the generation being written
+and a counter within the transaction, with no entropy source. The owner replaced that on
+2026-07-27: a minted identifier is a UUID version 7.
+
+This is recorded as a reversal rather than an addition because `nostdb-core/src/id.rs`
+carries a `# Why not randomness` rustdoc section arguing the opposite, and
+`transaction.rs::identifiers_a_write_mints_are_reproducible_across_two_identical_databases`
+asserts it. The rustdoc is rewritten and the test is removed.
+
+### One of the original arguments was overstated
+
+The Stage 6 record claimed determinism is "what lets synchronization compare content digests
+rather than wall-clock time". Rereading section 14 against the implementation, that is not
+so. Synchronization compares one file against its own recorded baseline: a generation it
+stored and a digest of the bytes on disk. It never compares two independently produced
+databases, so it does not need them to agree.
+
+What the change actually costs is the reproducible-build property, that the same source
+rebuilt yields the same bytes. `docs/PRD.md` never asked for it. Correcting the earlier
+overstatement matters here, because leaving it standing would make this reversal look like it
+sacrificed synchronization, which it does not.
+
+### What the change costs and what it buys
+
+A minted identifier now needs a wall clock and a cryptographic random source, neither of
+which `nostdb-core` used before. The default minter is UUID version 7 and a deterministic
+minter is kept for tests, which is what the owner's word "default" asked for: without it no
+test could assert an exact identifier.
+
+`SourceUnitId::QUERY` is `[0; 16]`, which is exactly the nil UUID. A version 7 value always
+carries 7 in its version nibble, so a minted identifier can never collide with the sentinel.
+That was luck rather than design, and it is recorded so nobody later "fixes" the constant.
+
+In exchange the identifiers are time-ordered and globally unique. Global uniqueness is not
+required, since `docs/PRD.md` section 11.2 identifies a record across databases by the pair
+of canonical locator and local identifier, but it costs nothing and removes a class of
+mistake when identifiers are copied between files by hand.
 
 ## Stage 6 increment 3 acceptance criteria
 
