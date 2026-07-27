@@ -1101,7 +1101,7 @@ Stage 7 is taken in four increments, for the same reason Stages 5 and 6 were.
 | 1 | connect `nostdb-cli` as scaffolding; `.nost` language version 2; `.nost` to graph conversion in both directions | DONE |
 | 2 | the settings contract, then `help`, `init`, `check`, `convert`, `export`, and the exit classes | DONE |
 | 3 | the result envelope contract, then `query` in immediate mode, the multiline REPL, and table, JSON, JSONL, and CSV output | DONE |
-| 4 | link resolution and recursive federation in Core, then `link add|remove|list|check|refresh`, `build`, `plan`, `apply`, and `sync` | not started |
+| 4 | link resolution and recursive federation in Core, then `link add|remove|list|check|refresh`, `build`, `plan`, `apply`, and `sync` | IN_PROGRESS |
 
 The first two were one increment until the work was inspected. Core stops at the `.nost`
 tree: it parses, validates, and formats, and nothing turns a parsed document into a graph or
@@ -1376,6 +1376,65 @@ A node naming two schemas is validated against the union of their fields. If bot
 same key, the declared types must match, and a mismatch raises a diagnostic. If one marks the
 key optional and the other does not, the key is required. Requiring the stricter reading is
 the only rule that cannot silently weaken a declaration the author wrote.
+
+## Stage 7 increment 4: link resolution, and an honest scope
+
+Increment 4 is larger than the three before it put together. It is being taken in parts,
+and this records what is done, what is not, and why the split falls where it does.
+
+Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `8c9bf9f`, and `nostdb-cli` `8dd6e0d`:
+link resolution and recursive federation in Core, and `link list` and `link check`.
+`./scripts/verify-workspace.sh` passes over all three pins.
+
+### Recorded decision: resolution reports rather than fails
+
+Root PRD section 18.6 requires an inaccessible source to keep its declaration and the
+query to return everything reachable. `federation::resolve` therefore cannot return an
+error for a link at all: every outcome is a `LinkStatus` and, when unreachable, a
+warning. The only `Err` it produces is for the root, which is a different problem.
+
+A corrupt target is the test that proves it: the link is unavailable and the root's
+records are still there.
+
+### Recorded decision: each source keeps its own graph
+
+Two sources may carry the same local identifier. A database copied and then linked from
+its original has exactly that, and section 18.4 says two locators stay two logical
+sources however identical their bytes. Concatenating the graphs would make one record of
+two, so `Federation` holds a list of sources and a record is identified by the pair of
+canonical locator and local identifier.
+
+A test builds that collision on purpose and asserts the locators are what tell them
+apart.
+
+### Recorded decision: `list` reports and `check` judges
+
+A broken link is a fact about the workspace rather than a failure of the command that
+listed it, so `link list` always succeeds. `link check` is the one a pipeline runs and
+exits 5 when anything could not be reached. An orphan settings entry changes neither
+class, because it is about settings rather than reachability.
+
+### An ambiguity the implementation forced
+
+`max_link_databases` named a limit and left its unit unstated. The first implementation
+and the first test took opposite readings, which is how it surfaced. It counts linked
+databases and excludes the root, so it counts the same thing as `linked_databases_opened`
+in the result envelope; a limit counting one thing while the number printed beside it
+counted another would be a trap. The settings contract now says so for all three limits.
+
+### Not done, and what each needs
+
+| Remaining | Needs |
+| --- | --- |
+| federated queries | the executor keys records by `LocalNodeId`, which cannot address a union where two sources may carry the same one. Making it scope-aware is a real change to `execute.rs`, not a wiring job |
+| `link add`, `remove`, `refresh` | the multi-file journal the settings contract requires for reconciling a declaration with its settings entry |
+| `build`, `plan` | the analysis pipeline in `docs/PRD.md` section 17: scanning, ignore handling, a deterministic analyzer, caching, and a `BuildPlan`. This is the largest single body of work left in the Stage |
+| `apply` | a `GraphChangeSet` on disk, which needs the `change_set_version` contract that is still deferred |
+| `sync` | wiring the state machine `sync.rs` already implements to real files, plus the baseline conversion writes |
+
+`linked_databases_opened` and `partial` are still zero and false in a query result.
+Resolution now produces both numbers, and connecting them is part of the federated-query
+work rather than a separate task.
 
 ## Stage 7 increment 3 verification
 
