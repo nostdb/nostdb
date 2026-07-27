@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-28
 
-Current stage: `Stage 8 IN_PROGRESS` (increments 1 to 3 of 5 complete; increment 4 is next)
+Current stage: `Stage 8 IN_PROGRESS` (increments 1 to 3 of 5 complete; increment 4 is partly done)
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification, Engine, and command-surface repositories `nostdb-spec`,
@@ -1166,7 +1166,7 @@ Stage 8 is taken in four increments, for the same reason Stages 5 through 7 were
 | 1 | connect `nostdb-server` as scaffolding; the local protocol and catalog contracts in `nostdb-spec` | DONE |
 | 2 | the daemon: the endpoint, the one-instance OS lock, the OS-user boundary, and catalog persistence | DONE |
 | 3 | framing, version negotiation, and message decoding | DONE |
-| 4 | sessions, transaction isolation, query timeouts, per-session resource limits, recovery, and stale-session cleanup | PENDING |
+| 4 | sessions, transaction isolation, query timeouts, per-session resource limits, recovery, and stale-session cleanup | IN_PROGRESS |
 | 5 | the client side in `nostdb-cli`: `server start|status|stop|run`, `catalog add|remove|list`, and `--database @name` | PENDING |
 
 ### Scope amendment: increment 3 split in two
@@ -2113,6 +2113,72 @@ the GitHub provider that arrives in Stage 9: a local link is read live and has n
 to advance. What remains inside
 `build` is optimization and enrichment rather than correctness: it produces a correct
 database today, and re-reads files it could skip.
+
+## Stage 8 increment 4: the session model, and what is not done
+
+Increment 4 is `IN_PROGRESS`, not `DONE`. The session model landed and the request loop did not, so
+this records both rather than implying the increment is finished.
+
+Verified on 2026-07-28 in `nostdb-server` at `338530c` and `nostdb-spec` at `36b9821`, with
+`nostdb-core` at `96011ce` and `nostdb-cli` at `36edb62`. 53 unit tests and 6 conformance tests in
+the daemon; both child verifiers and the workspace verifier exit 0.
+
+### Resolved: a connection carries one session
+
+The question increment 3 recorded, answered by the owner: option 1. Section 6.1 now states that a
+connection carries at most one session, with the reason and the cost.
+
+`server_protocol_version` stays 1. Nothing has implemented the protocol yet, so this completes an
+underspecified point rather than changing a published behavior. Section 6 had said a session is
+the unit of isolation and left the count unstated, and the `session_id` in section 5.1 implied
+several.
+
+The restriction buys the transaction model. A transaction is a region during which the daemon is
+committed to one session's view, so a second session's request arriving inside it must be queued —
+unbounded buffering a client cannot see — or refused, a failure it cannot predict. Opening a
+second connection is a better answer than either, and concurrency comes from there.
+
+`session_id` stays on the wire rather than becoming redundant. It names the session `close_session`
+ends, and it lets a request confirm which session it believes it is in instead of inheriting
+whatever the connection currently holds.
+
+A later version may lift this. Adding multiplexing would need `server_protocol_version` 2 rather
+than a silent widening, which the contract says outright.
+
+### The rule is enforced by construction
+
+`Slot` holds either no session or one and has no representation for two, so a second
+`open_session` cannot be honoured by a code path somebody forgot to guard. A twelfth refusal row
+was added to section 8 with its fixture, because a rule with no fixture is prose.
+
+### Two failures kept apart because their fixes differ
+
+A name the catalog does not hold is `UnknownName`; a catalogued name whose target will not open is
+`Storage`. The first is fixed with `catalog add` and the second by mounting a disk.
+
+The second is exactly the case the catalog contract's section 1.3 keeps out of catalog validation,
+so it has to surface at open instead. A single "could not open" would have told a caller to check
+the wrong thing half the time.
+
+### Not done, and what each needs
+
+| Remaining | Needs |
+| --- | --- |
+| the request loop | accepting a connection, running the handshake, and dispatching. The pieces exist and are untested together |
+| query execution through a session | the loop above; `Session::database_mut` is the borrow a transaction takes |
+| the transaction region | the loop, because the region is a nested read of that connection's messages |
+| timeouts and per-session limits | the loop, since a limit is enforced around a running request |
+| stale-session cleanup | the loop; a dropped connection drops its `Slot`, which is most of it |
+
+The daemon still accepts no connection. `run` binds the endpoint and exits, as increment 2 left it,
+because a loop that accepted a connection and did nothing with it would look like a working daemon.
+
+### A stale deferral corrected
+
+The protocol conformance suite listed `unknown_session` as awaiting a session registry. That
+registry now exists, so the reason had become false while the deferral stayed correct: the rule is
+decided against a connection's state rather than a document, which is why a document-driven suite
+still cannot check it. Both session rules now say that, and point at the tests that do prove them.
 
 ## Stage 8 increment 3 verification
 
