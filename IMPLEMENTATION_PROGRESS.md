@@ -2114,14 +2114,95 @@ to advance. What remains inside
 `build` is optimization and enrichment rather than correctness: it produces a correct
 database today, and re-reads files it could skip.
 
-## Stage 8 increment 4: the session model, and what is not done
+## Conflict: section 7 requires a query timeout the Engine cannot provide
 
-Increment 4 is `IN_PROGRESS`, not `DONE`. The session model landed and the request loop did not, so
-this records both rather than implying the increment is finished.
+Found while implementing the request loop. Recorded rather than approximated, and the current
+behavior is unchanged: no timeout is claimed, and `Limits` has no field for one.
 
-Verified on 2026-07-28 in `nostdb-server` at `338530c` and `nostdb-spec` at `36b9821`, with
-`nostdb-core` at `96011ce` and `nostdb-cli` at `36edb62`. 53 unit tests and 6 conformance tests in
-the daemon; both child verifiers and the workspace verifier exit 0.
+### The conflict
+
+`server_protocol_version` 1 section 7 requires an implementation to enforce and make configurable:
+
+```text
+a query timeout
+```
+
+`nostdb-core` exposes no deadline, budget, or cancellation hook. `execute` runs to completion, and
+`Transaction::run` calls it. Grepping the Engine for `timeout`, `deadline`, `cancel`, and `budget`
+finds nothing in `execute.rs`, `transaction.rs`, or `cypher.rs`.
+
+So a timeout in the daemon could only be measured **after** a query had already finished, and
+reporting one then would name a limit that stopped nothing. Section 7 also says a request stopped by
+a limit must report which limit stopped it, which is a promise about a request that was stopped.
+
+### Why the obvious workarounds are worse than the gap
+
+- **run the query on a worker thread and abandon it on timeout.** The database is borrowed by the
+  transaction, so the borrow cannot cross threads while the transaction lives, and abandoning a
+  thread part way through a write leaves the transaction's own copy in a state nothing owns;
+- **measure and report afterwards.** This is the dishonest option: the caller is told a ceiling
+  stopped their query when the work had already been done and paid for;
+- **poll a flag inside the Engine.** That is the real fix, and it is a `nostdb-core` change rather
+  than a daemon one.
+
+### What the daemon does instead
+
+It enforces the limits it can, and claims only those:
+
+| Section 7 limit | Status |
+| --- | --- |
+| a maximum frame size, at least 8 MiB | enforced, before any buffer is sized |
+| a per-session result-size ceiling | enforced on the way out, and reported by name |
+| a maximum number of concurrent sessions | one per connection, by construction |
+| a query timeout | **not enforced.** Needs a cancellation hook in `nostdb-core` |
+
+The result ceiling is honest about its own reach: it bounds what crosses the socket rather than what
+was computed, because the Engine produces a whole result before returning it. The rustdoc on
+`Limits` says so, rather than leaving a reader to assume a row cap is a work cap.
+
+Awaiting the owner's decision on whether to add cancellation to the Engine. Stage 8 cannot close
+`DONE` while a published section 7 requirement is unmet, so this is the last open question of the
+Stage rather than a detail.
+
+## Stage 8 increment 4: sessions and the request loop
+
+Increment 4 stays `IN_PROGRESS`. The session model and the request loop both landed, and the query
+timeout section 7 requires is blocked on the Engine, which is recorded as a conflict above.
+
+Verified on 2026-07-28 in `nostdb-server` at `bd713f7` and `nostdb-spec` at `36b9821`, with
+`nostdb-core` at `96011ce` and `nostdb-cli` at `36edb62`. 53 unit tests, 20 conversation tests, and
+6 conformance tests in the daemon; both child verifiers and the workspace verifier exit 0.
+
+### The request loop, and the region the Engine's borrow requires
+
+`begin` enters a nested loop that reads the connection's messages until commit or rollback. Nothing
+outside that scope can hold the transaction, so there is no state in which the daemon believes a
+transaction is open and it is not. `nostdb-cli`'s REPL reached the same shape for the same reason,
+and its record was right to call it a design rather than a workaround.
+
+Inside the region a nested `begin` is refused, and so is closing the session or stopping the daemon:
+each would decide the transaction's fate on the client's behalf.
+
+A `commit` with no transaction is an `error` outcome and **not** a section 8 refusal. It is a
+well-formed message in the wrong state, which the client can act on, and that is what separates the
+two classes.
+
+### A defect the concurrency test found, which nothing else would have
+
+The accept loop was first written to spawn a thread per connection and then join it immediately.
+That serves connections strictly in turn, which is the exact opposite of what section 6.1 promises
+when it says concurrency comes from opening more connections — the restriction to one session per
+connection is only defensible *because* more connections are served at once.
+
+Every other test uses one connection at a time, so all twenty passed. The test that catches it holds
+a transaction open on one connection and requires a second to be answered while it is held.
+
+### Two things proven about a dropped connection
+
+Section 6.2 says a client that disconnects mid-transaction has not decided to commit. The test drops
+the connection with an uncommitted write outstanding, then reopens the database from disk and checks
+the generation is still 1 — not merely that a later query sees no rows, which a caching bug could
+also produce.
 
 ### Resolved: a connection carries one session
 
@@ -2164,14 +2245,12 @@ the wrong thing half the time.
 
 | Remaining | Needs |
 | --- | --- |
-| the request loop | accepting a connection, running the handshake, and dispatching. The pieces exist and are untested together |
-| query execution through a session | the loop above; `Session::database_mut` is the borrow a transaction takes |
-| the transaction region | the loop, because the region is a nested read of that connection's messages |
-| timeouts and per-session limits | the loop, since a limit is enforced around a running request |
-| stale-session cleanup | the loop; a dropped connection drops its `Slot`, which is most of it |
+| the query timeout | a cancellation hook in `nostdb-core`. Recorded as a conflict above, awaiting a decision |
+| the Windows named pipe | an access control list for the user's security identifier. `address()` returns `Unsupported` there rather than a wrong path |
+| peer-credential checking | nothing, unless the directory mode is judged insufficient. Section 1.2's guarantee is the operating system's, and the endpoint directory is 0700 |
 
-The daemon still accepts no connection. `run` binds the endpoint and exits, as increment 2 left it,
-because a loop that accepted a connection and did nothing with it would look like a working daemon.
+Everything else this increment scoped is implemented. `run` now stays in the foreground and serves
+until a client sends `shutdown`.
 
 ### A stale deferral corrected
 
