@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-28
 
-Current stage: `Stage 8 IN_PROGRESS` (increments 1 to 4 of 5 complete; increment 5 is partly done)
+Current stage: `Stage 8 IN_PROGRESS` (all five increments complete; the Stage's acceptance criteria are being checked)
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification, Engine, and command-surface repositories `nostdb-spec`,
@@ -1167,7 +1167,7 @@ Stage 8 is taken in four increments, for the same reason Stages 5 through 7 were
 | 2 | the daemon: the endpoint, the one-instance OS lock, the OS-user boundary, and catalog persistence | DONE |
 | 3 | framing, version negotiation, and message decoding | DONE |
 | 4 | sessions, transaction isolation, query timeouts, per-session resource limits, recovery, and stale-session cleanup | DONE |
-| 5 | the client side in `nostdb-cli`: `server start|status|stop|run`, `catalog add|remove|list`, and `--database @name` | IN_PROGRESS |
+| 5 | the client side in `nostdb-cli`: `server start|status|stop|run`, `catalog add|remove|list`, and `--database @name` | DONE |
 
 ### Scope amendment: increment 3 split in two
 
@@ -2114,14 +2114,57 @@ to advance. What remains inside
 `build` is optimization and enrichment rather than correctness: it produces a correct
 database today, and re-reads files it could skip.
 
-## Stage 8 increment 5: the command surface, in part
+## Stage 8 increment 5: the command surface
 
-Increment 5 is `IN_PROGRESS`. `catalog add|remove|list` and `server status|run` work; `server start`
-and `stop` are refused by name, and `--database @name` is not implemented.
+Increment 5 is `DONE`. `catalog add|remove|list`, `server start|status|stop|run`, and
+`--database @name` all work.
 
-Verified on 2026-07-28 in `nostdb-cli` at `8f3bc07`, with `nostdb-server` at `2ee27a0`,
-`nostdb-core` at `7097a23`, and `nostdb-spec` at `2ac0f68`. 46 unit tests, 76 command tests, and 13
+Verified on 2026-07-28 in `nostdb-cli` at `b8e9900`, with `nostdb-server` at `2ee27a0`,
+`nostdb-core` at `7097a23`, and `nostdb-spec` at `2ac0f68`. 49 unit tests, 77 command tests, and 13
 REPL tests; the child verifier exits 0.
+
+### Three gaps that were one
+
+`--database @name`, `server start`, and `server stop` were listed as three remaining items. They all
+wanted a protocol client and nothing else, so writing it closed all three at once. Listing them
+separately was right at the time and wrong in hindsight, which is worth recording: the previous
+increment's estimate said three pieces of work where there was one.
+
+### Recorded decision: `server start` spawns this binary
+
+`nostdb server start` runs `this binary server run` rather than looking for `nostdb-server` on the
+PATH. The daemon a caller starts then always matches the client that started it, and the command
+works from a build directory where only one of the two binaries is on the PATH.
+
+It waits for the endpoint to appear rather than assuming it did. A start that returned early would
+have the very next command fail against a daemon that had not finished binding.
+
+### A defect the round-trip test found in the design
+
+`start_daemon` first used `std::env::current_exe()`. That is the `nostdb` binary when a person runs
+it and the **test binary** under a test harness, so the test spawned itself, the harness read
+`server run` as a test filter, and it exited 0. The failure read `the daemon exited immediately with
+exit status: 0`.
+
+The binary is now a parameter. The fix is better than the bug hid: a caller that knows which binary
+to run says so, rather than the function guessing from its own process.
+
+### The named route renders JSON only, and says so
+
+The daemon forwards the Engine's envelope as JSON. `output::write` renders a `ResultEnvelope`, and
+rebuilding one from JSON would be a second reader of a published shape, while rendering a table
+straight from the JSON would be a second renderer of it. Both are the duplication the root contract
+forbids and both would drift on the first change to the envelope.
+
+So `--format json` passes through verbatim and every other format is refused by name. The real fix
+is making the envelope readable back in `nostdb-core`, which nothing needs yet.
+
+### The round trip declines rather than stopping a daemon it did not start
+
+The end-to-end test binds this user's real endpoint and stops the daemon when it is done. Stopping
+one it did not start would kill a daemon a developer is using, so it skips in that case. That is
+what makes it safe to switch on in the child verifier, which keeps a local run and a CI run checking
+the same invariants rather than leaving the headline feature covered only in CI.
 
 ### Recorded decision: the CLI depends on the daemon crate
 
