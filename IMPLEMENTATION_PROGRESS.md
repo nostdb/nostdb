@@ -1382,11 +1382,11 @@ the only rule that cannot silently weaken a declaration the author wrote.
 Increment 4 is larger than the three before it put together. It is being taken in parts,
 and this records what is done, what is not, and why the split falls where it does.
 
-Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `46ef388`, and `nostdb-cli` `54d75ee`:
+Done, at `nostdb-spec` `8b7f458`, `nostdb-core` `a7691ee`, and `nostdb-cli` `ab5e644`:
 link resolution and recursive federation in Core, federated queries, `link list`, `link
 check`, `sync`, and `link add` and `link remove` through the multi-file journal, and the source scanner with
 its hand-written Git-ignore matcher, `plan`, the Rust structural analyzer, and `build`.
-`./scripts/verify-workspace.sh` passes over all three pins, with 677 tests in the Engine
+`./scripts/verify-workspace.sh` passes over all three pins, with 679 tests in the Engine
 and 118 in the command surface.
 
 ### Recorded decision: resolution reports rather than fails
@@ -1840,15 +1840,35 @@ And one reporting fix: a build that reused everything said `structural skipped`,
 the opposite of what happened. Everything is covered; it was covered earlier and nothing has
 changed since.
 
-### A settings field the contract does not have
+### Amending a published contract, for the first time this Stage
 
-Section 17.7 says the user cache "can be disabled per project", and `settings_version` 1 has
-no field for it. `Project::cache_layout` therefore takes the decision as an argument rather
-than reading one, so the capability exists and nothing invents a settings key.
+Section 17.7 says the user cache "can be disabled per project" and `settings_version` 1 had
+no field for it. `cache.user` is that field, defaulting to true, and adding it is the first
+change this Stage has made to a published contract.
 
-Adding one means amending the settings contract in `nostdb-spec` and its fixtures, which is
-a contract change rather than an implementation detail, and it is left for the increment
-that also has a store to disable.
+**No version bump**, and the reason is the contract's own rule: an unknown field inside a
+supported version is preserved on write and otherwise ignored. An older build carries this
+one through untouched and a newer build reading an older document takes the default. That
+rule exists precisely so a compatible addition does not cost a version.
+
+The project tier gets no field. A project that could not cache its own derived work would
+have nothing to turn off — that tier lives inside the project and is discarded with it. The
+user tier is shared across every project the same operating-system user builds, which is the
+thing a project might have reason not to read from.
+
+The document says outright that `user: false` is **not** a privacy guarantee about the other
+direction. Nothing in it constrains what an implementation writes, and reading the field as
+though it did is the misunderstanding worth heading off in the text rather than in a later
+issue.
+
+Four fixtures: one accepting the field, one rejecting a string where a boolean belongs, one
+merge proving a project's `false` overrides a global's `true` by defined field, and the
+existing merge results gain the section.
+
+On the Engine side the user directory is now derived from the global settings path already
+supplied to `Project::open` — that file lives in the user's `.nostdb`, which is also where
+their cache tier is. Asking a caller for the same directory twice would be two places to get
+it wrong.
 
 ### Not done, and what each needs
 
@@ -1856,7 +1876,6 @@ that also has a store to disable.
 | --- | --- |
 | `link refresh` | the GitHub provider in Stage 9. A local link has no snapshot to advance |
 | per-file reuse | understanding why resolving against a fresh index and a recorded one together loses edges that a single index finds. The graph-comparison tests are in place and are what a second attempt has to pass |
-| the settings field above | amending the settings contract in `nostdb-spec` so a project can disable the user cache tier. The capability exists; only the way to ask for it is missing |
 | AI enrichment | the analysis packet in 17.5 and a provider. `plan` already produces the budget check it has to pass |
 | `apply` | a `GraphChangeSet` on disk, which needs the `change_set_version` contract that is still deferred |
 
