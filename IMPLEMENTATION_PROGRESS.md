@@ -1382,11 +1382,11 @@ the only rule that cannot silently weaken a declaration the author wrote.
 Increment 4 is larger than the three before it put together. It is being taken in parts,
 and this records what is done, what is not, and why the split falls where it does.
 
-Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `0d8586d`, and `nostdb-cli` `2cff583`:
+Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `d26c41d`, and `nostdb-cli` `1e57c74`:
 link resolution and recursive federation in Core, federated queries, `link list`, `link
 check`, `sync`, and `link add` and `link remove` through the multi-file journal, and the source scanner with
 its hand-written Git-ignore matcher, `plan`, the Rust structural analyzer, and `build`.
-`./scripts/verify-workspace.sh` passes over all three pins, with 651 tests in the Engine
+`./scripts/verify-workspace.sh` passes over all three pins, with 652 tests in the Engine
 and 118 in the command surface.
 
 ### Recorded decision: resolution reports rather than fails
@@ -1753,24 +1753,38 @@ It was spotted in the numbers rather than by a test: a comment-only edit to one 
 looks like. References now resolve against reused files as well, the created half is gone,
 and a test that fails without the fix covers it.
 
-### An observation left open
+### The observation, run down
 
-That same comment-only edit still reports 33 edges deleted with none created. Reuse is not
-supposed to change what the graph holds, so this is either a real difference between the
-incremental and full paths or a counting artifact, and it has not been run down.
+It was a real bug, and the reproduction is exact. Build `nostdb-core`, edit one comment,
+rebuild: 1275 `CALLS` edges where a full build of the same source produces 1308. A forced
+rebuild immediately after — nothing else in between — creates exactly the 33 that were
+missing. The loss is entirely in call resolution out of the one file that was re-read.
 
-It is recorded rather than dismissed because the property at stake — an incremental build
-and a full build produce the same graph — is exactly the one the fix above was about, and
-half-checking it is how the other half stays hidden. The check to write is a test that builds
-a fixture tree incrementally and from scratch and compares the two graphs record for record.
-Until that exists, prefer `--rebuild` where the graph must be known to be exact.
+The cause is that per-file reuse resolved references against **two** indexes, one for the
+files it re-read and one for the files it skipped, and the two together do not answer the
+same question a single index does. Adding the second index fixed the visible half of the
+problem — cross-file calls stopped being dropped and re-minted — and left this half. Why is
+still not understood.
+
+So the finer rule is gone. If anything was re-read, everything is. A graph that depends on
+how it was built is worse than one that took longer to build, and that is the whole reason
+this was being chased in the first place; keeping a faster path that is known to be wrong
+would have been choosing the speed over the property.
+
+What survives is the case that matters most and is provably safe: a tree where every file
+matches its recorded digest is not read at all and commits no generation. On this crate that
+is the difference between 0.27s and 0.20s, and after any edit the build is a full one again.
+
+Two tests now compare an incrementally built graph with a freshly built one record for
+record, with identifiers dropped so they compare what the graphs assert rather than which
+objects they are. They are what a return to per-file reuse has to pass.
 
 ### Not done, and what each needs
 
 | Remaining | Needs |
 | --- | --- |
 | `link refresh` | the GitHub provider in Stage 9. A local link has no snapshot to advance |
-| the open observation above | a test comparing an incrementally built graph with a freshly built one, record for record |
+| per-file reuse | understanding why resolving against a fresh index and a recorded one together loses edges that a single index finds. The graph-comparison tests are in place and are what a second attempt has to pass |
 | the cache keys in 17.7 | reuse currently compares digests against the graph. The three published cache-key shapes, and the project and user caches they sit in, are not built |
 | AI enrichment | the analysis packet in 17.5 and a provider. `plan` already produces the budget check it has to pass |
 | `apply` | a `GraphChangeSet` on disk, which needs the `change_set_version` contract that is still deferred |
