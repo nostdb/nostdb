@@ -1382,10 +1382,10 @@ the only rule that cannot silently weaken a declaration the author wrote.
 Increment 4 is larger than the three before it put together. It is being taken in parts,
 and this records what is done, what is not, and why the split falls where it does.
 
-Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `386b76a`, and `nostdb-cli` `2f35a17`:
-link resolution and recursive federation in Core, federated queries, and `link list` and
-`link check`. `./scripts/verify-workspace.sh` passes over all three pins, with 458 unit
-tests plus 28 conformance and storage tests in the Engine and 81 in the command surface.
+Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `d9c16a9`, and `nostdb-cli` `6b36ad5`:
+link resolution and recursive federation in Core, federated queries, `link list`, `link
+check`, and `sync`. `./scripts/verify-workspace.sh` passes over all three pins, with 493
+tests in the Engine and 90 in the command surface.
 
 ### Recorded decision: resolution reports rather than fails
 
@@ -1455,6 +1455,37 @@ The federation is resolved once per invocation rather than per statement, so a R
 session pins each linked source for its whole life; a second statement seeing a link that
 changed underneath it would not be one snapshot.
 
+### Recorded decision: the baseline cannot live inside the database it describes
+
+This is what the synchronization work turned up, and it decided the design.
+
+A baseline records the digest of the whole database file. Writing it into that file would
+change the digest it had just recorded, and advance the generation it had just named, so
+the baseline would be wrong the instant it was stored.
+
+Breaking that circle from inside means digesting everything *except* one section and
+writing the baseline in the same commit that produces the generation it names. Both are
+possible and neither is explicable. `.nostdb/sync.json` has no circle to break, and
+`docs/PRD.md` section 10.1 now lists it with the reason.
+
+The container's reserved `sync_metadata` section therefore stays unwritten. A test asserts
+it stays that way, so the omission is not later "fixed".
+
+### Recorded decision: two refusals that decline rather than guess
+
+With no baseline, synchronization declines. Nothing records what the two last agreed on,
+so neither side can be called the one that moved, and a guess would overwrite whichever it
+went against. `export --nost` establishes a baseline and `convert` adopts a document
+wholesale; both are explicit, and the refusal names both.
+
+A malformed baseline is refused rather than treated as absent. Treating it as absent would
+silently discard the record of an agreement and leave the next run declining instead of
+acting.
+
+A stale file and a conflict both exit 4. They are different states with the same
+consequence: synchronization could not proceed and a person has to choose. The product
+contract gives class 4 to a sync conflict and has no closer class for the first.
+
 ### Not done, and what each needs
 
 | Remaining | Needs |
@@ -1462,9 +1493,8 @@ changed underneath it would not be one snapshot.
 | `link add`, `remove`, `refresh` | the multi-file journal the settings contract requires for reconciling a declaration with its settings entry |
 | `build`, `plan` | the analysis pipeline in `docs/PRD.md` section 17: scanning, ignore handling, a deterministic analyzer, caching, and a `BuildPlan`. This is the largest single body of work left in the Stage |
 | `apply` | a `GraphChangeSet` on disk, which needs the `change_set_version` contract that is still deferred |
-| `sync` | wiring the state machine `sync.rs` already implements to real files, plus the baseline conversion writes |
 
-What remains is four commands. `build` and `plan` are the largest single body of work
+What remains is three commands. `build` and `plan` are the largest single body of work
 left in the Stage and arguably belong to one of their own: the analysis pipeline needs
 scanning, ignore handling, a deterministic analyzer for at least one language, caching,
 and a `BuildPlan`, and choosing the parsing technology is itself a decision this Stage has

@@ -333,6 +333,7 @@ A configured project stores state under its project root:
 <project>/
 └── .nostdb/
     ├── settings.json
+    ├── sync.json              # what the two representations last agreed on
     ├── root.nostdb
     ├── root.nost              # only when human-readable mode is enabled
     ├── cache/
@@ -345,6 +346,11 @@ A configured project stores state under its project root:
 
 The nearest ancestor containing `.nostdb/settings.json` is the active project.
 An explicit `--project` or `--database` argument overrides discovery.
+
+`sync.json` records the synchronization baseline defined in section 14. It sits
+beside the database rather than inside it: a baseline records the digest of the
+whole database file, so writing it into that file would change the digest it had
+just recorded and advance the generation it had just named.
 
 The default database is:
 
