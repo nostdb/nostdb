@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-28
 
-Current stage: `Stage 8 IN_PROGRESS` (increments 1 to 4 of 5 complete; increment 5 is next)
+Current stage: `Stage 8 IN_PROGRESS` (increments 1 to 4 of 5 complete; increment 5 is partly done)
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification, Engine, and command-surface repositories `nostdb-spec`,
@@ -1167,7 +1167,7 @@ Stage 8 is taken in four increments, for the same reason Stages 5 through 7 were
 | 2 | the daemon: the endpoint, the one-instance OS lock, the OS-user boundary, and catalog persistence | DONE |
 | 3 | framing, version negotiation, and message decoding | DONE |
 | 4 | sessions, transaction isolation, query timeouts, per-session resource limits, recovery, and stale-session cleanup | DONE |
-| 5 | the client side in `nostdb-cli`: `server start|status|stop|run`, `catalog add|remove|list`, and `--database @name` | PENDING |
+| 5 | the client side in `nostdb-cli`: `server start|status|stop|run`, `catalog add|remove|list`, and `--database @name` | IN_PROGRESS |
 
 ### Scope amendment: increment 3 split in two
 
@@ -2113,6 +2113,56 @@ the GitHub provider that arrives in Stage 9: a local link is read live and has n
 to advance. What remains inside
 `build` is optimization and enrichment rather than correctness: it produces a correct
 database today, and re-reads files it could skip.
+
+## Stage 8 increment 5: the command surface, in part
+
+Increment 5 is `IN_PROGRESS`. `catalog add|remove|list` and `server status|run` work; `server start`
+and `stop` are refused by name, and `--database @name` is not implemented.
+
+Verified on 2026-07-28 in `nostdb-cli` at `8f3bc07`, with `nostdb-server` at `2ee27a0`,
+`nostdb-core` at `7097a23`, and `nostdb-spec` at `2ac0f68`. 46 unit tests, 76 command tests, and 13
+REPL tests; the child verifier exits 0.
+
+### Recorded decision: the CLI depends on the daemon crate
+
+`nostdb-cli/AGENTS.md` prohibits this repository from owning a named-database catalog or an IPC
+transport, and permits it to own the daemon **client**. Those two rules together decide the
+dependency: the client is in the CLI, and the catalog type and the protocol's framing and messages
+are imported from `nostdb-server` rather than written again.
+
+A second catalog writer or a second framing would be exactly the duplication the root contract
+forbids, and the two would drift on the first change to either. The dependency is pinned to an exact
+commit, as the Engine's is.
+
+### Recorded decision: `catalog add` writes the catalog rather than asking the daemon
+
+The catalog contract's section 5 requires a write to be a complete replacement moved into place and
+says two processes may attempt one at once, with the last complete write winning. That makes a
+direct write safe.
+
+It is also the only design that keeps the command working with no daemon running, which matters more
+than it first appears: registering a name is exactly what someone does **before** starting one. A
+`catalog add` that required a daemon would be a chicken-and-egg problem in the first command a new
+user runs.
+
+### Two commands refused rather than stubbed
+
+`server start` needs to spawn a detached process and wait for the endpoint to appear. `server stop`
+needs a protocol client to send `shutdown`. Neither is written, so both are refused by name and
+point at `server run`, which does work.
+
+A stub that exited 0 would have been worse than the refusal: a caller would believe a daemon was
+running and find out later, somewhere else.
+
+### Not done, and what each needs
+
+| Remaining | Needs |
+| --- | --- |
+| `--database @name` | a protocol client in the CLI: connect, handshake, open a session, send the query, render the envelope |
+| `server start` | spawning the daemon detached, then waiting for the endpoint to appear rather than assuming it did |
+| `server stop` | the same protocol client, to send `shutdown` |
+
+All three want the same client, so they are one piece of work rather than three.
 
 ## Resolved conflict: section 7 requires a query timeout the Engine could not provide
 
