@@ -22,12 +22,14 @@ openCypher subset including writes and explicit transactions. See
 [Implementation progress](IMPLEMENTATION_PROGRESS.md) for the current Stage.
 
 `nostdb-cli` provides `help`, `init`, `check`, `convert`, `export`, `query` and its
-REPL, `link`, `plan`, `build`, `apply`, `sync`, and `--version`, with the exit
-classes the product contract fixes. `link refresh` waits for the GitHub provider,
+REPL, `link`, `plan`, `build`, `apply`, `sync`, `catalog`, `server`, and
+`--version`, with the exit classes the product contract fixes. `link refresh` waits for the GitHub provider,
 because a local link has no snapshot to advance.
 
-`nostdb-server` is repository scaffolding only. The per-user daemon, its local
-protocol, and the named database catalog land across the Stage 8 increments.
+`nostdb-server` is the per-user local daemon. It holds the named database catalog,
+the local endpoint, the lock that keeps one instance per user, and sessions that
+call public Core APIs. `nostdb query --database @name` runs through it; every
+path-based command still runs without it.
 
 The remaining five repositories will be created and connected by the Stage that
 first needs each one.
@@ -49,7 +51,7 @@ nostdb/
 ├── nostdb-spec/              # connected and pinned
 ├── nostdb-core/              # connected and pinned
 ├── nostdb-cli/               # connected and pinned
-├── nostdb-server/            # connected and pinned, scaffolding only
+├── nostdb-server/            # connected and pinned
 ├── nostdb-provider-github/   # not yet authorized
 ├── nostdb-distribution/      # not yet authorized
 ├── homebrew-tap/             # not yet authorized

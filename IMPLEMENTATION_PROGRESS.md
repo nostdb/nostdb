@@ -2,7 +2,8 @@
 
 Last updated: 2026-07-28
 
-Current stage: `Stage 8 IN_PROGRESS` (all five increments complete; the Stage's acceptance criteria are being checked)
+Current stage: none is `IN_PROGRESS`. Stage 8 closed at increment 5. Stage 9 stays `PENDING`
+until `nostdb-provider-github` is authorized, created, and pinned.
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification, Engine, and command-surface repositories `nostdb-spec`,
@@ -33,7 +34,7 @@ requirements.
 | 5 | DONE | Parser, sync, and deterministic analysis foundation | Stage 4 |
 | 6 | DONE | openCypher subset and query execution | Stage 5 |
 | 7 | DONE | CLI, REPL, conversion, and link management | Stage 6, plus connected `nostdb-cli` |
-| 8 | IN_PROGRESS | Per-user local daemon | Stage 7, plus connected `nostdb-server` |
+| 8 | DONE | Per-user local daemon | Stage 7, plus connected `nostdb-server` |
 | 9 | PENDING | GitHub provider | Stage 7, plus connected `nostdb-provider-github` |
 | 10 | PENDING | Skills and AI enrichment workflow | Stages 7 and 9, plus connected `skills` |
 | 11 | PENDING | Plugin manager and WebGPU reference viewer | Stage 7, plus connected `plugins` |
@@ -2113,6 +2114,89 @@ the GitHub provider that arrives in Stage 9: a local link is read live and has n
 to advance. What remains inside
 `build` is optimization and enrichment rather than correctness: it produces a correct
 database today, and re-reads files it could skip.
+
+## Stage 8 verification
+
+Passed on 2026-07-28 in `nostdb-spec` at `2ac0f68`, `nostdb-core` at `7097a23`, `nostdb-cli` at
+`b8e9900`, and `nostdb-server` at `8ab7850`.
+
+`./scripts/verify-workspace.sh` exits 0 over all four pins. Child CI is green on all four
+repositories, and the root's is green over the pinned set.
+
+### PRD section 30.6, criterion by criterion
+
+Each row names the evidence rather than asserting the criterion. Two are weaker than the rest and
+say so.
+
+| Criterion | Evidence |
+| --- | --- |
+| exactly one daemon per OS user | an advisory lock; a second acquisition reports already-held, and a released lock is reacquired without a process-id guess |
+| current-user IPC access | the socket is 0600 inside a 0700 directory, narrowed even when inherited wide open |
+| denial across user boundaries | **by construction, not by test.** See below |
+| named database catalog recovery | a truncated file on disk is refused rather than read as far as it goes, and a replacing write leaves the previous catalog intact. Both added by this audit |
+| concurrent sessions and transaction isolation | two connections are served at once, and one does not see the other's uncommitted write |
+| timeouts and resource limits | a query past its timeout is stopped by the Engine; a result past its ceiling names the limit; an over-long frame is refused before a buffer is sized |
+| no TCP or HTTP listener in the MVP | enforced structurally by the child verifier, over both the source and the dependency list, proven to fire |
+
+### The criterion that is argued rather than tested
+
+"Denial across user boundaries" has no test, and it is worth being exact about what does and does
+not exist.
+
+What is proven: the endpoint's directory is mode 0700 and the socket is 0600, tested directly, and
+tested again after the directory was deliberately widened first so the test cannot pass by accident.
+
+What is not proven: that a process belonging to a different operating-system user is actually
+denied. That needs a second user, which neither a developer's machine nor a CI runner offers, and
+the operating system rather than this code is what performs the denial.
+
+So the mechanism is tested and the outcome is inferred from it. The inference is sound — a directory
+another user cannot traverse holds a socket they cannot reach — but it is an inference, and a reader
+deciding whether to trust this boundary should know that rather than find a row in a table saying
+"denied".
+
+The protocol contract's section 1.2 says the same thing from the other side: the endpoint's only
+authentication is the operating system's, and there is deliberately no password to test.
+
+### What Stage 8 produced that was not in its scope
+
+Two contracts and one Engine capability.
+
+`catalog_version` 1 and `server_protocol_version` 1 were both reserved keys with no document. The
+second needed amending twice while implementing it — once to say a refusal states no negotiated
+version, and once to say a connection carries one session — and both amendments came from the
+implementation failing against the contract rather than from review.
+
+`nostdb-core` gained cooperative cancellation, because section 7's query timeout could not otherwise
+be honoured. Stage 10's AI token budget needs the same shape, and the CLI's REPL has wanted an
+interruptible query since Stage 7.
+
+### The defects this Stage found in its own checks
+
+Five, and none of them were in the daemon:
+
+| Defect | What it did |
+| --- | --- |
+| the version registry's two forms were compared by substring | `not yet specified` satisfied a test for `specified`, so a row stating the opposite of the registry passed |
+| the diagnostic check assumed every code is the Engine's | Stage 8's codes belong to the daemon; the check had to learn owners, which Stages 9 and 11 will need too |
+| the conformance loop assumed every contract is the Engine's | running the catalog suite from `nostdb-core` would have run nothing and reported success |
+| the workspace verifier filtered for `verified` | it hid the lines a suite prints to say what it did **not** cover, which is the opposite of their purpose |
+| the accept loop joined each connection before accepting the next | connections were served strictly in turn, and all twenty conversation tests passed because each used one connection |
+
+The pattern is worth naming: every one was a check that passed while proving less than it claimed.
+The daemon's own defects were caught by tests; these were caught by writing the next thing and
+noticing the check should have complained.
+
+### Deferred out of Stage 8
+
+- the Windows named pipe. `endpoint::address()` returns `Unsupported` there rather than a wrong
+  path. Section 2 names both platforms, so this is a gap against the contract and not a silent one;
+- peer-credential checking, for the reason above: the directory mode already holds the boundary the
+  operating system enforces;
+- rendering a named database's result as anything but JSON, which needs the envelope readable back
+  in `nostdb-core`;
+- `catalog` operations through the daemon. They write the catalog directly, which the contract
+  permits and which keeps them working before a daemon exists.
 
 ## Stage 8 increment 5: the command surface
 
