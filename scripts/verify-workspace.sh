@@ -204,6 +204,69 @@ if [ -f "$core_diagnostics" ] && [ -f "$spec_registry" ]; then
   fi
 fi
 
+# Every diagnostic code docs/PRD.md section 28 requires is either registered in
+# nostdb-spec or listed below as awaiting the contract that will own it.
+#
+# This check exists because the same gap appeared three times: LINKED_DATABASE_READ_ONLY,
+# ORPHAN_LINK_SETTINGS, and LINK_UNAVAILABLE were each required from the first revision of
+# the PRD and each went unregistered until a contract happened to need it. Nothing
+# detected any of them. A code is registered by the contract that first names it, so a
+# deferral is legitimate; what was missing was making the deferral visible.
+if [ -f nostdb-spec/diagnostics.json ]; then
+  awaiting_a_contract="
+ANALYZER_UNSUPPORTED
+ANALYSIS_PARTIAL
+AI_BUDGET_EXCEEDED
+PLUGIN_REQUIRED
+PLUGIN_INCOMPATIBLE
+PLUGIN_DIGEST_MISMATCH
+PROVIDER_AUTH_REQUIRED
+PROVIDER_PERMISSION_DENIED
+SERVER_ALREADY_RUNNING
+SERVER_PROTOCOL_UNSUPPORTED
+VIEW_CAPACITY_EXCEEDED
+"
+
+  required_codes=$(
+    sed -n '/^Required stable codes include:$/,/^```$/p' docs/PRD.md |
+      grep -E '^[A-Z][A-Z_]+$'
+  )
+  if [ -z "$required_codes" ]; then
+    echo "could not read the required code list from docs/PRD.md section 28" >&2
+    exit 1
+  fi
+
+  unaccounted=""
+  for code in $required_codes; do
+    if grep -q "\"$code\"" nostdb-spec/diagnostics.json; then
+      continue
+    fi
+    case " $(echo $awaiting_a_contract) " in
+      *" $code "*) continue ;;
+    esac
+    unaccounted="$unaccounted $code"
+  done
+
+  if [ -n "$unaccounted" ]; then
+    echo "docs/PRD.md section 28 requires these codes, and they are neither registered" >&2
+    echo "in nostdb-spec nor listed as awaiting a contract:$unaccounted" >&2
+    exit 1
+  fi
+
+  # A code that became registered must leave the deferral list, or the list rots into a
+  # record of what used to be missing.
+  stale=""
+  for code in $awaiting_a_contract; do
+    if grep -q "\"$code\"" nostdb-spec/diagnostics.json; then
+      stale="$stale $code"
+    fi
+  done
+  if [ -n "$stale" ]; then
+    echo "these codes are registered and still listed as awaiting a contract:$stale" >&2
+    exit 1
+  fi
+fi
+
 # Cross-repository conformance check.
 #
 # nostdb-core must reproduce every container outcome nostdb-spec declares, run against
@@ -217,7 +280,7 @@ if [ -f nostdb-core/Cargo.toml ] && [ -d nostdb-spec/fixtures ]; then
     exit 1
   fi
 
-  for suite in container_conformance nost_conformance cypher_conformance settings_conformance; do
+  for suite in container_conformance nost_conformance cypher_conformance settings_conformance result_conformance; do
     conformance_log=$(
       NOSTDB_SPEC_FIXTURES="$workspace_root/nostdb-spec/fixtures" \
         cargo test --quiet --manifest-path nostdb-core/Cargo.toml \

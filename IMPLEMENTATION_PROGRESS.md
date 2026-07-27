@@ -1100,7 +1100,7 @@ Stage 7 is taken in four increments, for the same reason Stages 5 and 6 were.
 | --- | --- | --- |
 | 1 | connect `nostdb-cli` as scaffolding; `.nost` language version 2; `.nost` to graph conversion in both directions | DONE |
 | 2 | the settings contract, then `help`, `init`, `check`, `convert`, `export`, and the exit classes | DONE |
-| 3 | the result envelope contract, then `query` in immediate mode, the multiline REPL, and table, JSON, JSONL, and CSV output | not started |
+| 3 | the result envelope contract, then `query` in immediate mode, the multiline REPL, and table, JSON, JSONL, and CSV output | DONE |
 | 4 | link resolution and recursive federation in Core, then `link add|remove|list|check|refresh`, `build`, `plan`, `apply`, and `sync` | not started |
 
 The first two were one increment until the work was inspected. Core stops at the `.nost`
@@ -1376,6 +1376,101 @@ A node naming two schemas is validated against the union of their fields. If bot
 same key, the declared types must match, and a mismatch raises a diagnostic. If one marks the
 key optional and the other does not, the key is required. Requiring the stricter reading is
 the only rule that cannot silently weaken a declaration the author wrote.
+
+## Stage 7 increment 3 verification
+
+Passed on 2026-07-27 in `nostdb-spec` at `668b871`, `nostdb-core` at `32fb7dd`, and
+`nostdb-cli` at `db54107`.
+
+Rust command set clean in all three children: 434 unit tests plus 25 conformance and
+storage tests in the Engine, 35 in the specification harness, and 70 across the command
+surface. `./scripts/verify-workspace.sh` passes over all three pins and reports 22
+further fixtures:
+
+```text
+result conformance: 4 produced envelopes verified
+result conformance: a produced query envelope verified
+result conformance: 8 published envelopes verified
+```
+
+### Acceptance criteria
+
+| Criterion | Met by |
+| --- | --- |
+| The result envelope is published with fixtures | 8 accepted, 14 rejected, each rejection naming the rule it breaks |
+| The Engine's envelopes satisfy it | proven against hand-built shapes, a real query's output, and every published accepted fixture |
+| `query` runs in immediate mode | one statement, one transaction, committed when it changed anything |
+| The REPL is multiline with transaction controls | 13 sessions covering `:help`, `:begin`, `:commit`, `:rollback`, `:database`, `:quit` |
+| Four output formats exist | table, JSON, JSONL, CSV, each a rendering of the one envelope |
+| Data and diagnostics stay separate | every test asserts the exit class and both streams together |
+
+### Recorded decision: the envelope is built once, in the Engine
+
+Four formats render it, and all four live in the command surface. Building the shape
+there would put the published contract in four places, and a fifth consumer, the daemon,
+would make it five. `ResultEnvelope` is therefore a Core type and each format is a
+rendering of it.
+
+### Recorded decision: a read reports no write summary
+
+`writes` is supplied by the caller rather than read off the result, because only the
+caller knows whether the query was permitted to write. A read reporting eight zeroes
+would say "changed nothing" where the truth is "could not change anything", and a caller
+deciding whether to commit needs those apart.
+
+### Recorded decision: the REPL's transaction is a lexical region
+
+A `Transaction` borrows its `Database`, so the REPL cannot hold one across iterations of
+a loop that also owns the database. `:begin` enters a second loop that owns the
+transaction and returns when it closes.
+
+That shape was chosen rather than worked around. It makes the transaction's extent
+lexical, so no state exists in which the REPL believes it is in a transaction and is not,
+and every exit from that loop must decide what happens to the open work. Three exits do,
+and all three roll back: `:rollback`, `:quit`, and end of input. Committing work its
+author never confirmed is the worse guess, and each has a test proving the write did not
+survive.
+
+### The same gap, a third time, and what now catches it
+
+`LINK_UNAVAILABLE`, `LINK_CYCLE`, and `LINK_LIMIT_EXCEEDED` are required by `docs/PRD.md`
+section 28 and were never registered. That is the third instance: `LINKED_DATABASE_READ_ONLY`
+was found in Stage 6 and `ORPHAN_LINK_SETTINGS` in increment 2. Each was required from the
+first revision of the PRD, each went unregistered until a contract happened to need it,
+and nothing detected any of them.
+
+`scripts/verify-workspace.sh` now checks that every code section 28 requires is either
+registered in `nostdb-spec` or named in an explicit deferral list, and that a code which
+became registered has left that list. Both directions were proven to reject rather than
+assumed. Eleven codes remain deferred, each waiting on the provider, plugin, server, or
+analysis contract that will own it.
+
+A code is still registered by the contract that first names it, which is why the three
+link codes are owned by `result_version`: that document defines `partial`, and `partial`
+is meaningless without saying which warnings set it. The deferral was legitimate; what
+was missing was making it visible.
+
+### Two defects the suites found in themselves
+
+The specification's envelope checker used `?` throughout. In a function returning
+`Option<String>`, `?` on a missing member returns `None`, and `None` means "no
+violation" — so a malformed envelope read as a valid one and the fixture for a missing
+version passed while proving nothing. A conformance suite had grown exactly the failure
+mode it exists to prevent, and only a fixture declaring `reject` and then passing
+revealed it.
+
+A comment in the Engine claimed a float was "placed by hand" because `serde_json` drops a
+trailing `.0`. It does not, and the code did nothing special. The test asserted
+`as_f64() == 20.0`, which would have passed while `20` was written; it now asserts the
+rendered text, which is the distinction the contract actually asks for.
+
+### Deferred out of increment 3
+
+- `linked_databases_opened` is always zero and `partial` is always false, because no link
+  is resolved yet. The fields are in the envelope and the three codes that set `partial`
+  are registered, so increment 4 fills them in rather than changing the shape;
+- parameters. `Parameters` is passed empty: the query subset declares them, and a CLI flag
+  for them needs a form this increment did not settle.
 
 ## Stage 7 increment 2 verification
 
