@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-28
 
-Current stage: `Stage 8 IN_PROGRESS` (increments 1 to 3 of 5 complete; increment 4 is partly done)
+Current stage: `Stage 8 IN_PROGRESS` (increments 1 to 4 of 5 complete; increment 5 is next)
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification, Engine, and command-surface repositories `nostdb-spec`,
@@ -1166,7 +1166,7 @@ Stage 8 is taken in four increments, for the same reason Stages 5 through 7 were
 | 1 | connect `nostdb-server` as scaffolding; the local protocol and catalog contracts in `nostdb-spec` | DONE |
 | 2 | the daemon: the endpoint, the one-instance OS lock, the OS-user boundary, and catalog persistence | DONE |
 | 3 | framing, version negotiation, and message decoding | DONE |
-| 4 | sessions, transaction isolation, query timeouts, per-session resource limits, recovery, and stale-session cleanup | IN_PROGRESS |
+| 4 | sessions, transaction isolation, query timeouts, per-session resource limits, recovery, and stale-session cleanup | DONE |
 | 5 | the client side in `nostdb-cli`: `server start|status|stop|run`, `catalog add|remove|list`, and `--database @name` | PENDING |
 
 ### Scope amendment: increment 3 split in two
@@ -2114,10 +2114,10 @@ to advance. What remains inside
 `build` is optimization and enrichment rather than correctness: it produces a correct
 database today, and re-reads files it could skip.
 
-## Conflict: section 7 requires a query timeout the Engine cannot provide
+## Resolved conflict: section 7 requires a query timeout the Engine could not provide
 
-Found while implementing the request loop. Recorded rather than approximated, and the current
-behavior is unchanged: no timeout is claimed, and `Limits` has no field for one.
+Found while implementing the request loop, recorded before acting, and resolved by the owner on
+2026-07-28. The resolution is at the end of this section.
 
 ### The conflict
 
@@ -2160,14 +2160,52 @@ The result ceiling is honest about its own reach: it bounds what crosses the soc
 was computed, because the Engine produces a whole result before returning it. The rustdoc on
 `Limits` says so, rather than leaving a reader to assume a row cap is a work cap.
 
-Awaiting the owner's decision on whether to add cancellation to the Engine. Stage 8 cannot close
-`DONE` while a published section 7 requirement is unmet, so this is the last open question of the
-Stage rather than a detail.
+### The resolution: cancellation in the Engine
+
+Chosen by the owner: add it to `nostdb-core` rather than approximate it in the daemon or defer the
+requirement. It was the only option that satisfies what section 7 and PRD 30.6 already say.
+
+`nostdb-core` `7097a23` adds `cancel`, with `ShouldStop` as a trait and `Never`, `Deadline`, and
+`Flag` as answers to it. The Engine takes the *question* rather than one answer, because a
+wall-clock deadline, a client disconnecting, and an AI token budget running out in Stage 10 are the
+same question asked by different callers. Stage 10 gets the shape it needs for free.
+
+Every existing entry point delegates with `Never`, so no caller changed behavior and `nostdb-cli`
+needed no change at all.
+
+**The granularity is published rather than implied.** Query subset contract section 11.1 requires an
+implementation to observe a cancellation between the parts of a `UNION`, between the clauses of a
+part, and between the input rows of a `MATCH`, and forbids claiming more:
+
+> An implementation MUST NOT claim a granularity it does not have: a caller that is told a query
+> can be stopped, and then waits through a pattern expansion that never checks, has been given a
+> guarantee that does not hold in the case it most needed one.
+
+A pattern expansion producing a large cartesian product from **one** input row still runs to
+completion. That is stated in the contract, in `nostdb_core::cancel`, and in the daemon's `Limits`.
+
+Two tests matter more than the rest. One proves the token is asked **more than once** per query:
+checking only at the start would satisfy a naive test and stop nothing that had already begun. The
+other drives a timeout through a whole conversation and checks the reply carries the Engine's own
+`QUERY_CANCELLED` with a message naming the limit, and that the daemon adds no code of its own.
+
+All four of section 7's limits are now enforced:
+
+| Section 7 limit | Status |
+| --- | --- |
+| a maximum frame size, at least 8 MiB | enforced, before any buffer is sized |
+| a query timeout | enforced through Engine cancellation, at the published granularity |
+| a maximum number of concurrent sessions | one per connection, by construction |
+| a per-session result-size ceiling | enforced on the way out, and reported by name |
+
+Clippy found something real on the way. Threading the token pushed `run_part` past a readable
+argument list, so the four values every clause reads and none changes are now grouped into a `Run`
+struct rather than the lint being suppressed.
 
 ## Stage 8 increment 4: sessions and the request loop
 
-Increment 4 stays `IN_PROGRESS`. The session model and the request loop both landed, and the query
-timeout section 7 requires is blocked on the Engine, which is recorded as a conflict above.
+Increment 4 is `DONE`. The session model, the request loop, and the query timeout all landed; the
+timeout needed a `nostdb-core` change, recorded as a resolved conflict above.
 
 Verified on 2026-07-28 in `nostdb-server` at `bd713f7` and `nostdb-spec` at `36b9821`, with
 `nostdb-core` at `96011ce` and `nostdb-cli` at `36edb62`. 53 unit tests, 20 conversation tests, and
@@ -2245,7 +2283,6 @@ the wrong thing half the time.
 
 | Remaining | Needs |
 | --- | --- |
-| the query timeout | a cancellation hook in `nostdb-core`. Recorded as a conflict above, awaiting a decision |
 | the Windows named pipe | an access control list for the user's security identifier. `address()` returns `Unsupported` there rather than a wrong path |
 | peer-credential checking | nothing, unless the directory mode is judged insufficient. Section 1.2's guarantee is the operating system's, and the endpoint directory is 0700 |
 
