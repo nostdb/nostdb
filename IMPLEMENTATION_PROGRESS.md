@@ -1382,10 +1382,11 @@ the only rule that cannot silently weaken a declaration the author wrote.
 Increment 4 is larger than the three before it put together. It is being taken in parts,
 and this records what is done, what is not, and why the split falls where it does.
 
-Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `d9c16a9`, and `nostdb-cli` `6b36ad5`:
+Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `dfa7d3d`, and `nostdb-cli` `a4ae66d`:
 link resolution and recursive federation in Core, federated queries, `link list`, `link
-check`, and `sync`. `./scripts/verify-workspace.sh` passes over all three pins, with 493
-tests in the Engine and 90 in the command surface.
+check`, `sync`, and `link add` and `link remove` through the multi-file journal.
+`./scripts/verify-workspace.sh` passes over all three pins, with 509 tests in the Engine
+and 101 in the command surface.
 
 ### Recorded decision: resolution reports rather than fails
 
@@ -1488,9 +1489,77 @@ contract gives class 4 to a sync conflict and has no closer class for the first.
 
 ### Not done, and what each needs
 
+### Recorded decision: four files move together or none do
+
+`link add` changes the declaration in the database, its mirror in the settings, the
+materialized `.nost`, and the baseline recording that the two agree. A staged write
+followed by a rename is already all-or-nothing for one file; four renames are not, and a
+crash between two of them leaves the files disagreeing about what is declared.
+
+`journal::FileTransaction` stages every destination, writes the journal, and then promotes.
+`Project::open` finishes a committed journal before reading anything, so a crash is
+resolved rather than observed. Replay is idempotent because a promotion whose staging file
+is gone has already happened.
+
+A journal with no commit record is discarded along with its staging files. The intent was
+never made durable, so carrying it out would be inventing a decision the user never
+committed to; the last valid generation is the one already on disk. Both directions have a
+test, and removing the recovery call makes both fail.
+
+This is the first use of `journal.rs`, which Stage 4 built for exactly this case and
+nothing had needed until now.
+
+### Recorded decision: the mirror is edited, not regenerated
+
+The settings contract requires an unknown field to survive a write, because a writer that
+drops what it does not recognize makes downgrading lossy. `link add` therefore rewrites the
+document the user has — reading it, replacing the `links` array, and reserializing —
+rather than rendering a fresh one from the fields this build knows. Each surviving entry
+keeps its `timeout_ms` and `credential_ref` exactly as written.
+
+The alias is not written there. A test lists the entry's keys rather than searching the
+text, because the source `"./child"` ends in the alias `child` and a substring check would
+have passed either way.
+
+### Recorded decision: a change refuses rather than overwriting a `.nost`
+
+When `.nost` is materialized, `link add` regenerates it. If that file holds edits the
+database has not adopted, regenerating destroys them, so the command refuses with exit
+class 4 and names `nostdb sync`. A file with no baseline is refused for the same reason:
+nothing records what the two last agreed on, so nothing establishes that the file is the
+Engine's own output rather than something a person wrote.
+
+Every refusal — a malformed locator, a duplicate source, a duplicate alias, an undeclared
+removal, an unsynchronized `.nost` — happens before the first byte is staged. A test reads
+the database file before and after three refusals and compares the bytes.
+
+### A defect the end-to-end test found
+
+The federation resolved a relative locator against the directory holding the database
+file. In a configured project that directory is `.nostdb`, so `@link "./packages/child"` —
+the example in the product contract — meant `.nostdb/packages/child`, inside the opaque
+state directory.
+
+Every federation unit test wrote its root database straight into a temporary directory
+rather than into a `.nostdb` beneath it, so none of them used the layout a real project
+has, and the first `link add` test to run against a real project is what surfaced it. The
+base now steps out of the state directory when it finds one, derived from the path so the
+rule holds identically at every depth. Three tests use the project layout, including a
+nested link, and one keeps the bare-file reading `nostdb convert` output gets.
+
+### Recorded decision: `refresh` was refused for the wrong reason
+
+It was refused as "needs the multi-file journal". That is no longer true — the journal
+exists and `add` uses it. `refresh` advances a remote snapshot to a newer immutable commit,
+and a local link is read live at every query and has no snapshot to advance. Implementing
+it against a local source would mean inventing a meaning the product contract does not give
+it, so it waits for the GitHub provider in Stage 9. The message and its test now say that.
+
+### Not done, and what each needs
+
 | Remaining | Needs |
 | --- | --- |
-| `link add`, `remove`, `refresh` | the multi-file journal the settings contract requires for reconciling a declaration with its settings entry |
+| `link refresh` | the GitHub provider in Stage 9. A local link has no snapshot to advance |
 | `build`, `plan` | the analysis pipeline in `docs/PRD.md` section 17: scanning, ignore handling, a deterministic analyzer, caching, and a `BuildPlan`. This is the largest single body of work left in the Stage |
 | `apply` | a `GraphChangeSet` on disk, which needs the `change_set_version` contract that is still deferred |
 
