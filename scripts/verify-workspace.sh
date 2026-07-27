@@ -159,49 +159,119 @@ fi
 
 # Cross-repository integration check.
 #
-# A diagnostic code is a stable public identifier. The vocabulary nostdb-core
-# recognizes and the registry nostdb-spec publishes must match exactly, and they
-# live in separate repositories pinned together, so this is the only place that can
-# hold them together. Matching them by inspection would drift on the first change.
+# A diagnostic code is a stable public identifier, and the registry nostdb-spec publishes
+# must agree with the implementation that raises it. They live in separate repositories
+# pinned together, so this is the only place that can hold them together. Matching them by
+# inspection would drift on the first change.
 #
-# The core file's test section is excluded deliberately: it names an unregistered
-# code on purpose, to prove an unknown code is rejected rather than guessed.
-core_diagnostics="nostdb-core/src/diagnostic.rs"
+# Until Stage 8 every registered code was an Engine code, so comparing one vocabulary
+# against the whole registry was the same thing as comparing owners. The daemon raises
+# SERVER_ALREADY_RUNNING and SERVER_PROTOCOL_UNSUPPORTED and the Engine never can, so the
+# registry records an owner per code and each owner is compared against the codes it owns.
+# An owner whose crate does not exist yet is reported rather than skipped in silence.
 spec_registry="nostdb-spec/diagnostics.json"
+core_diagnostics="nostdb-core/src/diagnostic.rs"
 
-if [ -f "$core_diagnostics" ] && [ -f "$spec_registry" ]; then
-  # Any upper-snake-case quoted string, not only a NOST prefix. An earlier version
-  # anchored on NOST and silently missed SYNC_CONFLICT, so the check reported a code as
-  # absent from the Engine when the Engine had it. Every other quoted string in the
-  # non-test part of that file starts lower case, so this stays exact.
-  core_codes=$(
-    sed '/#\[cfg(test)\]/,$d' "$core_diagnostics" |
-      grep -oE '"[A-Z][A-Z_]+"' | tr -d '"' | LC_ALL=C sort -u
+# The codes the registry assigns to one owner. The registry is machine-written with `code`
+# ahead of `owner` in every entry and the nostdb-spec suite requires both fields on every
+# entry, so pairing them by order is exact rather than approximate.
+registered_for_owner() {
+  awk -v want="$1" '
+    /"code":[[:space:]]*"/ {
+      line = $0
+      sub(/^.*"code":[[:space:]]*"/, "", line)
+      sub(/".*$/, "", line)
+      code = line
+    }
+    /"owner":[[:space:]]*"/ {
+      line = $0
+      sub(/^.*"owner":[[:space:]]*"/, "", line)
+      sub(/".*$/, "", line)
+      if (line == want && code != "") {
+        print code
+        code = ""
+      }
+    }
+  ' "$spec_registry" | LC_ALL=C sort -u
+}
+
+if [ -f "$spec_registry" ]; then
+  registry_owners=$(
+    grep -oE '"owner": *"[a-z-]+"' "$spec_registry" |
+      sed 's/.*"\([a-z-]*\)"$/\1/' | LC_ALL=C sort -u
   )
-  spec_codes=$(
-    grep -oE '"code": *"[A-Z_]+"' "$spec_registry" |
-      sed 's/.*"\([A-Z_]*\)"$/\1/' | LC_ALL=C sort -u
-  )
-
-  if [ -z "$core_codes" ]; then
-    echo "extracted no diagnostic codes from $core_diagnostics" >&2
-    exit 1
-  fi
-  if [ -z "$spec_codes" ]; then
-    echo "extracted no diagnostic codes from $spec_registry" >&2
+  if [ -z "$registry_owners" ]; then
+    echo "extracted no code owners from $spec_registry" >&2
     exit 1
   fi
 
-  if [ "$core_codes" != "$spec_codes" ]; then
-    echo "the nostdb-core diagnostic vocabulary and the nostdb-spec registry differ" >&2
-    # comm must collate the same way the lists were sorted, or it reports every
-    # line as unique and sends the reader chasing differences that do not exist.
-    echo "registered in nostdb-core but not in nostdb-spec:" >&2
-    LC_ALL=C comm -23 <(printf '%s\n' "$core_codes") <(printf '%s\n' "$spec_codes") >&2
-    echo "registered in nostdb-spec but not in nostdb-core:" >&2
-    LC_ALL=C comm -13 <(printf '%s\n' "$core_codes") <(printf '%s\n' "$spec_codes") >&2
-    exit 1
-  fi
+  for owner in $registry_owners; do
+    owned=$(registered_for_owner "$owner")
+    if [ -z "$owned" ]; then
+      echo "extracted no codes for owner $owner from $spec_registry" >&2
+      exit 1
+    fi
+
+    if [ "$owner" = "nostdb-core" ]; then
+      if [ ! -f "$core_diagnostics" ]; then
+        continue
+      fi
+
+      # The Engine's vocabulary is one file and is compared in both directions: a code it
+      # recognizes that the registry does not assign to it is drift just as much as the
+      # reverse.
+      #
+      # The core file's test section is excluded deliberately: it names an unregistered
+      # code on purpose, to prove an unknown code is rejected rather than guessed.
+      #
+      # Any upper-snake-case quoted string, not only a NOST prefix. An earlier version
+      # anchored on NOST and silently missed SYNC_CONFLICT, so the check reported a code as
+      # absent from the Engine when the Engine had it. Every other quoted string in the
+      # non-test part of that file starts lower case, so this stays exact.
+      core_codes=$(
+        sed '/#\[cfg(test)\]/,$d' "$core_diagnostics" |
+          grep -oE '"[A-Z][A-Z_]+"' | tr -d '"' | LC_ALL=C sort -u
+      )
+      if [ -z "$core_codes" ]; then
+        echo "extracted no diagnostic codes from $core_diagnostics" >&2
+        exit 1
+      fi
+
+      if [ "$core_codes" != "$owned" ]; then
+        echo "the nostdb-core diagnostic vocabulary and the codes it owns in nostdb-spec differ" >&2
+        # comm must collate the same way the lists were sorted, or it reports every
+        # line as unique and sends the reader chasing differences that do not exist.
+        echo "recognized in nostdb-core but not owned by it in nostdb-spec:" >&2
+        LC_ALL=C comm -23 <(printf '%s\n' "$core_codes") <(printf '%s\n' "$owned") >&2
+        echo "owned by nostdb-core but not recognized in nostdb-core:" >&2
+        LC_ALL=C comm -13 <(printf '%s\n' "$core_codes") <(printf '%s\n' "$owned") >&2
+        exit 1
+      fi
+      continue
+    fi
+
+    # Any other owner. Its crate arrives with the Stage that implements it, so an owner with
+    # no source yet is reported and not counted as a pass. Once the source exists, every code
+    # the registry assigns to that owner must appear in it. The reverse is deliberately not
+    # required: an owner legitimately names a code it forwards from the Engine rather than
+    # raises itself.
+    if [ ! -d "$owner/src" ]; then
+      echo "diagnostic ownership: $owner awaits an implementation for" $owned
+      continue
+    fi
+
+    unraised=""
+    for code in $owned; do
+      if ! grep -rq "\"$code\"" "$owner/src"; then
+        unraised="$unraised $code"
+      fi
+    done
+    if [ -n "$unraised" ]; then
+      echo "nostdb-spec assigns these codes to $owner, whose source never raises them:$unraised" >&2
+      exit 1
+    fi
+    echo "diagnostic ownership: $owner raises every code assigned to it"
+  done
 fi
 
 # Every diagnostic code docs/PRD.md section 28 requires is either registered in

@@ -1214,11 +1214,11 @@ itself. Both refusals were proven to fire rather than assumed to work.
   Stage; it belongs to increment 2 with the Unix socket, because one endpoint abstraction
   covering both is the point rather than a port added afterwards.
 
-## Conflict: a published code whose implementation is not the Engine
+## Resolved conflict: a published code whose implementation is not the Engine
 
 Found while starting Stage 8 increment 1, before registering anything. Recorded before
-acting, as the root `AGENTS.md` requires. The current valid behavior is unchanged and no
-code has been registered.
+acting, as the root `AGENTS.md` requires. Resolved by the owner on 2026-07-28; see the
+resolution at the end of this section.
 
 ### The conflict
 
@@ -1269,13 +1269,42 @@ remaining Stage rather than being a Stage 8 quirk:
    are not yet implemented the same visible way `awaiting_a_contract` already lists codes
    awaiting a contract.
 
-Option 3 is the recommendation. It preserves what the check is for, needs no crate that
-does not exist, keeps the deferral visible instead of silent, and answers Stages 9 and 11
-at the same time rather than meeting this wall three more times. It also fits the existing
-registry, which already records a `contract` per code and would gain an `owner` beside it.
+### The resolution: option 3
 
-Awaiting the owner's decision. Increment 1 stops here, with the two registry defects below
-fixed, because publishing either contract means registering its codes.
+Chosen by the owner. Every code records an `owner` beside the `contract` it already
+recorded, and the workspace verifier compares each owner against the codes it owns:
+
+- all 33 existing codes are owned by `nostdb-core`, which is what made one comparison look
+  sufficient for six Stages;
+- the Engine is still compared in **both** directions, because a code it recognizes that
+  the registry does not assign to it is drift just as much as the reverse;
+- any other owner is compared in one direction only. Every code assigned to it must appear
+  in its source, and the reverse is deliberately not required, because an owner legitimately
+  names a code it forwards from the Engine rather than raises itself;
+- an owner whose crate does not exist yet is **reported**, not skipped:
+  `diagnostic ownership: nostdb-server awaits an implementation for ...`.
+
+`registry_version` stays 1. The addition is a new key on every entry with no reader that
+could misread an absent one, which is the same preservation rule that let the settings
+`cache` section land without a bump.
+
+The owner list is closed, to the five child repositories that can raise a code. An owner
+outside it names a repository the verifier cannot check, so `nostdb-spec` rejects it.
+
+Three paths were each proven to fire rather than assumed to work:
+
+| Probe | Result |
+| --- | --- |
+| a code reassigned away from `nostdb-core` | `recognized in nostdb-core but not owned by it in nostdb-spec: SYNC_CONFLICT` |
+| a code owned by `nostdb-server`, which has no source | `nostdb-server awaits an implementation for SERVER_ALREADY_RUNNING` |
+| the same code once `nostdb-server/src` exists without raising it | `nostdb-spec assigns these codes to nostdb-server, whose source never raises them` |
+
+The second probe also confirmed the coupling this record predicted before it was built: the
+same run failed with `these codes are registered and still listed as awaiting a contract`,
+which is why registering the server codes and removing them from that list has to be one
+change.
+
+Publishing the two contracts is the remainder of increment 1.
 
 ### Two registry defects fixed while finding this
 
