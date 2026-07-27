@@ -2103,8 +2103,8 @@ database today, and re-reads files it could skip.
 Passed on 2026-07-28 in `nostdb-spec` at `bb7c5eb`, with `nostdb-core` at `96011ce`,
 `nostdb-cli` at `36edb62`, and `nostdb-server` at `f05de0b`.
 
-47 tests in the specification harness. `./scripts/verify-workspace.sh` passes over all four
-pins and reports the two new suites:
+47 tests in the specification harness, and `./nostdb-spec/scripts/verify-repository.sh`
+reports the two new suites:
 
 ```text
 catalog conformance: accepted fixtures verified
@@ -2115,12 +2115,22 @@ server conformance: rejected fixtures verified
 server conformance: 11 refusal rules verified
 ```
 
-It also reports what the ownership resolution was built to make visible:
+These two run in the `nostdb-spec` harness rather than in the root verifier's
+cross-repository conformance loop, and that is where they belong. That loop runs
+`nostdb-core` suites against the published fixtures, and neither of these contracts has a
+Core implementation to run: the daemon owns both. Root CI runs each connected child's
+verifier, so the suites are still a gate rather than documentation.
+
+`./scripts/verify-workspace.sh` passes over all four pins and reports what the ownership
+resolution was built to make visible:
 
 ```text
 diagnostic ownership: nostdb-server awaits an implementation for CATALOG_INVALID
 CATALOG_VERSION_UNSUPPORTED SERVER_ALREADY_RUNNING SERVER_PROTOCOL_UNSUPPORTED
 ```
+
+Increment 2 adds the daemon crate, at which point that line becomes a comparison against its
+source instead of a deferral.
 
 ### Acceptance criteria
 
