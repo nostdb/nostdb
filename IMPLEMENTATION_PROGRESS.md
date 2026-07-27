@@ -1382,9 +1382,10 @@ the only rule that cannot silently weaken a declaration the author wrote.
 Increment 4 is larger than the three before it put together. It is being taken in parts,
 and this records what is done, what is not, and why the split falls where it does.
 
-Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `8c9bf9f`, and `nostdb-cli` `8dd6e0d`:
-link resolution and recursive federation in Core, and `link list` and `link check`.
-`./scripts/verify-workspace.sh` passes over all three pins.
+Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `386b76a`, and `nostdb-cli` `2f35a17`:
+link resolution and recursive federation in Core, federated queries, and `link list` and
+`link check`. `./scripts/verify-workspace.sh` passes over all three pins, with 458 unit
+tests plus 28 conformance and storage tests in the Engine and 81 in the command surface.
 
 ### Recorded decision: resolution reports rather than fails
 
@@ -1422,19 +1423,52 @@ databases and excludes the root, so it counts the same thing as `linked_database
 in the result envelope; a limit counting one thing while the number printed beside it
 counted another would be a trap. The settings contract now says so for all three limits.
 
+### Recorded decision: a bound record carries its source
+
+A `LocalNodeId` is unique within one database and nowhere else, and a federation may hold
+two sources carrying the same one. Merging the graphs and looking a record up by
+identifier would find whichever came first; every binding, endpoint resolution, and
+`DELETE` target goes through that lookup, so it would pick the wrong record silently.
+
+`QueryValue::Node` and `QueryValue::Relationship` therefore carry `Scoped<T>`: a source
+index beside the identifier. Three consequences follow, each with a test:
+
+- the sort key carries the source, so `ORDER BY` and `DISTINCT` cannot fold two records
+  into one, while `Display` still renders the identifier alone because that is what the
+  result envelope carries;
+- the visited set in a variable-length walk is scoped, so reaching one identifier in two
+  sources is two nodes rather than a cycle;
+- `Scoped::is_root` is what a write turns on, so `LINKED_DATABASE_READ_ONLY` is enforced
+  in one place — where a binding becomes something the writer will modify — rather than
+  at each call site.
+
+`execute` and `Transaction::run` delegate to federated forms with an empty source list,
+so every existing caller and test was unchanged by the refactor.
+
+### The contradiction increment 3 left, now closed
+
+`link list` reported an opened source while `query` saw none, and
+`linked_databases_opened` sat at zero beside it. Both now come from the same resolved
+federation. A query over a broken link is partial and still answers with what it reached.
+
+The federation is resolved once per invocation rather than per statement, so a REPL
+session pins each linked source for its whole life; a second statement seeing a link that
+changed underneath it would not be one snapshot.
+
 ### Not done, and what each needs
 
 | Remaining | Needs |
 | --- | --- |
-| federated queries | the executor keys records by `LocalNodeId`, which cannot address a union where two sources may carry the same one. Making it scope-aware is a real change to `execute.rs`, not a wiring job |
 | `link add`, `remove`, `refresh` | the multi-file journal the settings contract requires for reconciling a declaration with its settings entry |
 | `build`, `plan` | the analysis pipeline in `docs/PRD.md` section 17: scanning, ignore handling, a deterministic analyzer, caching, and a `BuildPlan`. This is the largest single body of work left in the Stage |
 | `apply` | a `GraphChangeSet` on disk, which needs the `change_set_version` contract that is still deferred |
 | `sync` | wiring the state machine `sync.rs` already implements to real files, plus the baseline conversion writes |
 
-`linked_databases_opened` and `partial` are still zero and false in a query result.
-Resolution now produces both numbers, and connecting them is part of the federated-query
-work rather than a separate task.
+What remains is four commands. `build` and `plan` are the largest single body of work
+left in the Stage and arguably belong to one of their own: the analysis pipeline needs
+scanning, ignore handling, a deterministic analyzer for at least one language, caching,
+and a `BuildPlan`, and choosing the parsing technology is itself a decision this Stage has
+not made.
 
 ## Stage 7 increment 3 verification
 
