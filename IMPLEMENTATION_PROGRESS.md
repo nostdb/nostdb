@@ -28,7 +28,7 @@ requirements.
 | 4 | DONE | Storage and transaction foundation | Stage 3 |
 | 5 | DONE | Parser, sync, and deterministic analysis foundation | Stage 4 |
 | 6 | DONE | openCypher subset and query execution | Stage 5 |
-| 7 | IN_PROGRESS | CLI, REPL, conversion, and link management | Stage 6, plus connected `nostdb-cli` |
+| 7 | DONE | CLI, REPL, conversion, and link management | Stage 6, plus connected `nostdb-cli` |
 | 8 | PENDING | Per-user local daemon | Stage 7, plus connected `nostdb-server` |
 | 9 | PENDING | GitHub provider | Stage 7, plus connected `nostdb-provider-github` |
 | 10 | PENDING | Skills and AI enrichment workflow | Stages 7 and 9, plus connected `skills` |
@@ -103,6 +103,22 @@ origin  git@github.com:nostdb/nostdb.git
 
 `nostdb` is a GitHub Organization. Each child locator is therefore
 `git@github.com:nostdb/<repository>.git`.
+
+### Scope amendment: `link refresh` moves to Stage 9
+
+Increment 4 was scoped with `link refresh` in it. It is not implemented, and the increment
+is marked DONE without it. That is a scope change, so it is recorded here rather than left
+to be noticed from a table.
+
+`refresh` advances a remote snapshot to a newer immutable commit. A local link is read live
+at every query and has no snapshot to advance, so there is nothing for the command to do
+until a source exists that has one — which is the GitHub provider, in Stage 9. Implementing
+it against a local source would mean inventing a meaning the product contract does not give
+it.
+
+The command is refused by name with that reason, and a test asserts the message says
+`snapshot` and does not say `journal` — which is what it used to say, and was true only
+until `link add` started using the journal.
 
 ### Authorized scope: nostdb-spec
 
@@ -1101,7 +1117,7 @@ Stage 7 is taken in four increments, for the same reason Stages 5 and 6 were.
 | 1 | connect `nostdb-cli` as scaffolding; `.nost` language version 2; `.nost` to graph conversion in both directions | DONE |
 | 2 | the settings contract, then `help`, `init`, `check`, `convert`, `export`, and the exit classes | DONE |
 | 3 | the result envelope contract, then `query` in immediate mode, the multiline REPL, and table, JSON, JSONL, and CSV output | DONE |
-| 4 | link resolution and recursive federation in Core, then `link add|remove|list|check|refresh`, `build`, `plan`, `apply`, and `sync` | IN_PROGRESS |
+| 4 | link resolution and recursive federation in Core, then `link add|remove|list|check`, `build`, `plan`, `apply`, and `sync` | DONE |
 
 The first two were one increment until the work was inspected. Core stops at the `.nost`
 tree: it parses, validates, and formats, and nothing turns a parsed document into a graph or
@@ -1911,6 +1927,48 @@ the GitHub provider that arrives in Stage 9: a local link is read live and has n
 to advance. What remains inside
 `build` is optimization and enrichment rather than correctness: it produces a correct
 database today, and re-reads files it could skip.
+
+## Stage 7 increment 4 verification
+
+Passed on 2026-07-27 in `nostdb-spec` at `89fcd66`, `nostdb-core` at `96011ce`, and `nostdb-cli` at
+`36edb62`.
+
+Rust command set clean in all three children: 683 tests in the Engine, 124 across the
+command surface, and 37 in the specification harness. `./scripts/verify-workspace.sh`
+passes over all three pins and now runs six conformance suites, the last of them added by this
+increment:
+
+```text
+change set conformance: 3 accepted fixtures verified
+change set conformance: 9 rejected fixtures verified
+```
+
+### Acceptance criteria
+
+| Criterion | Evidence |
+| --- | --- |
+| link resolution and recursive federation in Core | `federation::resolve`, cycle detection by canonical locator, depth and database limits |
+| `link list` and `link check` | `list` reports and `check` judges; an orphan settings entry changes neither class |
+| `link add` and `link remove` | four files move together through the multi-file journal, or none do |
+| `sync` | the four-state machine, refusing rather than guessing where it cannot tell |
+| `plan` | the `BuildPlan` shape section 17.6 publishes, and a budget check that compares the top of the estimate |
+| `build` | scanner, hand-written Git-ignore matcher, Rust structural analyzer, change set, and commit |
+| `apply` | `change_set_version` 1, twelve fixtures, and a conformance suite the workspace verifier runs |
+| `link refresh` | **not implemented.** Amended out of scope above, with the reason |
+
+### What this Stage produced that was not in its scope
+
+Three contracts were authored to get here — the result envelope, the settings `cache`
+section, and `change_set_version` — and the last two were the first amendments this project
+has made to a published specification. The settings addition needed no version bump, which
+is the preservation rule in that contract doing exactly what it was written for.
+
+Three defect classes came out of running the code on this repository rather than on
+fixtures, and every one of them appeared only on a **second** run: duplicate identifiers
+from a qualified name that is not unique in a file, duplicate edges from a relation counted
+per occurrence, and an incremental build resolving against two indexes where a full build
+uses one. A fixture suite written by whoever wrote the parser would not have contained any
+of them.
 
 ## Stage 7 increment 3 verification
 
