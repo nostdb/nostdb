@@ -21,7 +21,8 @@ formatter, synchronization, the deterministic analysis boundary, and the
 openCypher subset including writes and explicit transactions. See
 [Implementation progress](IMPLEMENTATION_PROGRESS.md) for the current Stage.
 
-`nostdb-cli` is connected as scaffolding; its command surface lands in Stage 7.
+`nostdb-cli` provides `help`, `init`, `check`, `convert`, `export`, and `--version`,
+with the exit classes the product contract fixes.
 
 The remaining six repositories will be created and connected by the Stage that
 first needs each one.

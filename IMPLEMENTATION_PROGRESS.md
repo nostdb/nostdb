@@ -1099,7 +1099,7 @@ Stage 7 is taken in four increments, for the same reason Stages 5 and 6 were.
 | Increment | Content | Status |
 | --- | --- | --- |
 | 1 | connect `nostdb-cli` as scaffolding; `.nost` language version 2; `.nost` to graph conversion in both directions | DONE |
-| 2 | the settings contract, then `help`, `init`, `check`, `convert`, `export`, and the exit classes | IN_PROGRESS |
+| 2 | the settings contract, then `help`, `init`, `check`, `convert`, `export`, and the exit classes | DONE |
 | 3 | the result envelope contract, then `query` in immediate mode, the multiline REPL, and table, JSON, JSONL, and CSV output | not started |
 | 4 | link resolution and recursive federation in Core, then `link add|remove|list|check|refresh`, `build`, `plan`, `apply`, and `sync` | not started |
 
@@ -1377,10 +1377,108 @@ same key, the declared types must match, and a mismatch raises a diagnostic. If 
 key optional and the other does not, the key is required. Requiring the stricter reading is
 the only rule that cannot silently weaken a declaration the author wrote.
 
-## Stage 7 increment 2: the settings contract, and a blocker
+## Stage 7 increment 2 verification
 
-The contract half is done. The command half is blocked on an authorization, not on a
-decision, and the blocker is recorded here rather than worked around.
+Passed on 2026-07-27 in `nostdb-spec` at `fa7fde1`, `nostdb-core` at `7411b97`, and
+`nostdb-cli` at `9c6214d`.
+
+Rust command set clean in all three children: 423 unit tests plus 22 conformance and
+storage tests in the Engine, 31 in the specification harness, and 36 in the command
+surface. `./scripts/verify-workspace.sh` passes over all three pins and now reports 27
+further fixtures:
+
+```text
+settings conformance: 6 accepted fixtures verified
+settings conformance: 4 merge fixtures verified
+settings conformance: 17 rejected fixtures verified
+```
+
+### Acceptance criteria
+
+| Criterion | Met by |
+| --- | --- |
+| The settings contract is published with fixtures an implementation can fail | 6 accepted, 17 rejected, 4 merge |
+| `ORPHAN_LINK_SETTINGS` is registered | with `SETTINGS_INVALID` and `SETTINGS_VERSION_UNSUPPORTED` |
+| The Engine reproduces every declared outcome | all 27, read from the pinned commit set |
+| `help`, `init`, `check`, `convert`, `export`, `--version` exist | 36 tests across the surface |
+| The exit classes match section 20.4 | asserted number by number, with class 1 left unassigned |
+| Machine-readable output carries no commentary | every test asserts the class and both streams together |
+| A failed command preserves what it did not change | a refused conversion leaves the target byte-identical and removes its staging file |
+| The CLI implements no database behavior | every command calls a public Core API; the verifier rejects a listener, a grammar copy, and a fixture copy |
+
+### Recorded decision: the Engine dependency is a pinned git commit
+
+`docs/REPOSITORIES.md` requires each child to build independently and forbids depending
+on uncommitted sibling state. Those two rules together leave one option.
+
+| Option | Why it fails |
+| --- | --- |
+| path dependency on `../nostdb-core` | breaks a standalone clone and child CI, which check out `nostdb-cli` alone |
+| vendoring Core | a second copy of the Engine, which every ownership boundary forbids |
+| publishing Core to a registry | `nostdb-core` is `publish = false`, and SSPL-1.0 is source-available |
+| git dependency pinned to an exact commit | taken |
+
+`nostdb-cli/scripts/verify-repository.sh` enforces it, and all four refusals were proven
+rather than assumed: a path dependency, a `branch`, a `tag`, and a short commit hash are
+each rejected with `must be pinned to an exact 40-character commit over https`.
+
+Raising the pin is therefore a deliberate act rather than a drift.
+
+### Recorded decision: settings and project discovery live in the Engine
+
+Both the command surface and the daemon read settings and answer "which project is
+this?", and they must answer identically. The root contract's rule is that shared
+behavior calls a public `nostdb-core` API rather than being implemented twice, so
+`SettingsDocument`, `Settings`, and `Project` are Core types.
+
+The alternative, treating either as command-surface configuration, would put the merge
+rule and the discovery rule in two repositories and let them drift the first time one is
+changed.
+
+### Recorded decision: no argument-parsing crate
+
+The command surface is small and its exit classes are normative, so the parser is written
+by hand. That keeps the mapping from a malformed invocation to exit class 2 explicit
+rather than delegated to a crate's own idea of what a usage error is, and it keeps the
+dependency list at one entry.
+
+### Recorded decision: `run` returns rather than exits
+
+`run` writes through `&mut dyn Write` and returns an `ExitClass`; `main` is the only place
+that touches the process streams or the process status. A test can then drive the whole
+surface in-process and assert the class and both streams together.
+
+Asserting both streams is the point rather than a convenience. A command that reports the
+right class while printing a diagnostic to stdout has still broken the rule that
+machine-readable output carries no commentary, and only checking both catches it.
+
+### Two classifications worth stating
+
+Exit class 1 is left unassigned. A shell reports 1 for a great many things a process did
+not choose, including an uncaught panic, so leaving it free keeps "the command reported a
+failure it understands" distinguishable from "something went wrong before it could say
+so".
+
+An external endpoint in a conversion is exit class 5, unavailable, not class 3. The
+document is well formed and the build is incomplete; calling it a validation error would
+blame the file for a capability that has not landed.
+
+### Deferred out of increment 2
+
+- `export --nost` writes the file and does not set `database.nost`. Changing a setting
+  needs a settings *writer*, and the multi-file journal the settings contract requires for
+  reconciling a link entry is not built. Until then the command reports a warning when the
+  setting is false, which is honest about the file not being maintained;
+- conversion to an existing target replaces it atomically but detects no synchronization
+  conflict. Conflict detection needs a baseline, which is increment 4;
+- `plan`, `build`, `apply`, `sync`, `query`, `link`, `catalog`, `server`, `plugin`, and
+  `view`, each owned by a later increment or Stage.
+
+## Superseded: the increment 2 blocker
+
+The contract half was done before the command half, which was blocked on an
+authorization, not on a decision. The blocker is kept here because the reasoning that
+produced the dependency design is the same reasoning recorded above.
 
 ### Done: `settings_version`
 
