@@ -260,17 +260,22 @@ if [ -f "$spec_registry" ]; then
       continue
     fi
 
-    unraised=""
+    # This proves the code is *declared* by the owner, not that it is raised in anger. Grep can
+    # tell the difference between present and absent, and cannot tell the difference between a
+    # declared code and a reachable one. The owner's own tests are what cover reachability, so
+    # the message says declares rather than raises: a check that claimed more than it verifies
+    # is worse than one that claims less.
+    undeclared=""
     for code in $owned; do
       if ! grep -rq "\"$code\"" "$owner/src"; then
-        unraised="$unraised $code"
+        undeclared="$undeclared $code"
       fi
     done
-    if [ -n "$unraised" ]; then
-      echo "nostdb-spec assigns these codes to $owner, whose source never raises them:$unraised" >&2
+    if [ -n "$undeclared" ]; then
+      echo "nostdb-spec assigns these codes to $owner, whose source never declares them:$undeclared" >&2
       exit 1
     fi
-    echo "diagnostic ownership: $owner raises every code assigned to it"
+    echo "diagnostic ownership: $owner declares every code assigned to it"
   done
 fi
 
@@ -337,35 +342,54 @@ fi
 
 # Cross-repository conformance check.
 #
-# nostdb-core must reproduce every container outcome nostdb-spec declares, run against
-# the pinned commit set rather than a copy vendored into the Engine. The Engine's own
-# test skips when it is not given a fixture path, so that a standalone clone still
-# builds; a skip proves nothing, so this requires the confirmation line and fails
-# without it.
-if [ -f nostdb-core/Cargo.toml ] && [ -d nostdb-spec/fixtures ]; then
+# An implementation must reproduce every outcome nostdb-spec declares, run against the pinned
+# commit set rather than a copy vendored into the implementation. Each suite skips when it is
+# not given a fixture path, so that a standalone clone still builds; a skip proves nothing, so
+# this requires the confirmation line and fails without it.
+#
+# The owning crate is named per suite rather than assumed to be the Engine. Stage 8 published
+# the first contract the Engine does not implement: the catalog belongs to the daemon, and
+# running its suite from nostdb-core would run nothing and report success for it.
+run_conformance_suite() {
+  conformance_crate=$1
+  conformance_suite=$2
+
+  # A crate that does not exist yet is reported rather than skipped in silence, the same way an
+  # unimplemented diagnostic owner is above.
+  if [ ! -f "$conformance_crate/Cargo.toml" ]; then
+    echo "conformance: $conformance_crate has no crate yet, so $conformance_suite is not run"
+    return 0
+  fi
+
+  conformance_log=$(
+    NOSTDB_SPEC_FIXTURES="$workspace_root/nostdb-spec/fixtures" \
+      cargo test --quiet --manifest-path "$conformance_crate/Cargo.toml" \
+      --test "$conformance_suite" -- --nocapture 2>&1
+  ) || {
+    echo "the $conformance_suite test in $conformance_crate failed" >&2
+    printf '%s\n' "$conformance_log" >&2
+    exit 1
+  }
+
+  if ! printf '%s\n' "$conformance_log" | grep -q 'verified'; then
+    echo "$conformance_suite in $conformance_crate did not run against the nostdb-spec fixtures" >&2
+    printf '%s\n' "$conformance_log" >&2
+    exit 1
+  fi
+  printf '%s\n' "$conformance_log" | grep 'verified' | sed 's/^\.*//'
+}
+
+if [ -d nostdb-spec/fixtures ]; then
   if ! command -v cargo >/dev/null 2>&1; then
     echo "cargo is required to run the cross-repository conformance check" >&2
     exit 1
   fi
 
   for suite in container_conformance nost_conformance cypher_conformance settings_conformance result_conformance change_set_conformance; do
-    conformance_log=$(
-      NOSTDB_SPEC_FIXTURES="$workspace_root/nostdb-spec/fixtures" \
-        cargo test --quiet --manifest-path nostdb-core/Cargo.toml \
-        --test "$suite" -- --nocapture 2>&1
-    ) || {
-      echo "the $suite test failed" >&2
-      printf '%s\n' "$conformance_log" >&2
-      exit 1
-    }
-
-    if ! printf '%s\n' "$conformance_log" | grep -q 'verified'; then
-      echo "$suite did not run against the nostdb-spec fixtures" >&2
-      printf '%s\n' "$conformance_log" >&2
-      exit 1
-    fi
-    printf '%s\n' "$conformance_log" | grep 'verified' | sed 's/^\.*//'
+    run_conformance_suite nostdb-core "$suite"
   done
+
+  run_conformance_suite nostdb-server catalog_conformance
 fi
 
 git diff --check

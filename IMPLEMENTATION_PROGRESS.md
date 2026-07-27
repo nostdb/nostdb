@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-28
 
-Current stage: `Stage 8 IN_PROGRESS` (increment 1 of 4 complete; increment 2 is next)
+Current stage: `Stage 8 IN_PROGRESS` (increments 1 and 2 of 4 complete; increment 3 is next)
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification, Engine, and command-surface repositories `nostdb-spec`,
@@ -1164,7 +1164,7 @@ Stage 8 is taken in four increments, for the same reason Stages 5 through 7 were
 | Increment | Content | Status |
 | --- | --- | --- |
 | 1 | connect `nostdb-server` as scaffolding; the local protocol and catalog contracts in `nostdb-spec` | DONE |
-| 2 | the daemon: the endpoint, the one-instance OS lock, the OS-user boundary, and catalog persistence | PENDING |
+| 2 | the daemon: the endpoint, the one-instance OS lock, the OS-user boundary, and catalog persistence | DONE |
 | 3 | sessions, transaction isolation, query timeouts, per-session resource limits, recovery, and stale-session cleanup | PENDING |
 | 4 | the client side in `nostdb-cli`: `server start|status|stop|run`, `catalog add|remove|list`, and `--database @name` | PENDING |
 
@@ -2097,6 +2097,82 @@ the GitHub provider that arrives in Stage 9: a local link is read live and has n
 to advance. What remains inside
 `build` is optimization and enrichment rather than correctness: it produces a correct
 database today, and re-reads files it could skip.
+
+## Stage 8 increment 2 verification
+
+Passed on 2026-07-28 in `nostdb-server` at `17f4864`, with `nostdb-spec` at `bb7c5eb`,
+`nostdb-core` at `96011ce`, and `nostdb-cli` at `36edb62`.
+
+22 unit tests and 3 conformance tests in the daemon. `./scripts/verify-workspace.sh` exits 0
+over all four pins, and two of its lines are new:
+
+```text
+diagnostic ownership: nostdb-server declares every code assigned to it
+catalog conformance: 4 accepted fixtures verified
+catalog conformance: 11 rejected fixtures verified
+catalog conformance: 4 round trips verified
+```
+
+The first line is the one increment 1 predicted: the ownership check has turned from a deferral
+into a comparison, because the crate it was waiting for now exists.
+
+### Acceptance criteria
+
+| Criterion | Evidence |
+| --- | --- |
+| catalog persistence | parse, load, store, insert, remove, and a complete-replacement write moved into place |
+| the one-instance lock | `File::try_lock`; a second acquisition reports already-held, and a released lock is reacquired |
+| a stale lock is reclaimed | the operating system releases an advisory lock when its holder dies; the test drops a guard and reacquires |
+| the OS-user boundary | the socket is mode 0600 inside a directory narrowed to 0700, narrowed even when inherited wide |
+| the catalog contract is a gate, not prose | the daemon reproduces all 15 published fixtures, against the declared code rather than merely refusing |
+| no TCP, UDP, or HTTP listener | enforced structurally by the child verifier, proven to fire |
+
+### The lock needed neither a dependency nor `unsafe`
+
+`std::fs::File::try_lock` has been stable since Rust 1.89. An advisory lock is released by the
+operating system when its holder dies, however it died, and that **is** the stale-lock reclaim
+section 2.1 requires rather than an approximation of it.
+
+So nothing in the daemon reads a process id or probes the socket. Both were ruled out by that
+section, and a recorded process id is wrong the moment the id is reused. A leftover lock file
+whose owner is gone is simply not locked, so acquiring it succeeds.
+
+The alternatives were a third-party crate wrapping `flock` or `unsafe` calls into libc, and the
+second would have required an ADR under the root Rust standards. This crate therefore declares
+`rust-version = "1.89"` where its siblings declare 1.85, which is recorded in its manifest
+beside the reason.
+
+### An ordering that is the contract rather than a preference
+
+The lock is acquired **before** the endpoint is bound.
+
+The lock is what proves no other daemon is running, so replacing a leftover socket file is only
+safe once it is held. Binding first and locking second would let two processes each unlink the
+other's socket, and each conclude it was the daemon. The rustdoc on `bind` states the
+requirement rather than leaving the order to look incidental.
+
+### Three defects this increment found in its own checks
+
+| Defect | What it did |
+| --- | --- |
+| the Engine-pin check triggered on any mention of `nostdb-core` | it failed on the manifest's own dependency review, which explains in prose why there is no Engine dependency yet. A check a comment can fail is one people learn to work around, so it now requires a dependency declaration |
+| the root conformance loop assumed every contract belongs to the Engine | running `catalog_conformance` from `nostdb-core` would have run nothing and reported success. The loop now names the owning crate per suite, and reports a crate that does not exist yet rather than passing over it |
+| the ownership check claimed more than it verifies | it said an owner *raises* every code assigned to it. Grep proves a code is **declared**; the owner's own tests are what cover reachability. The message now says declares |
+
+### Deferred out of increment 2
+
+- the protocol loop. Nothing accepts a connection and reads a frame yet, and `run` binds the
+  endpoint and exits rather than looping, because a loop that accepted a connection and did
+  nothing with it would look like a working daemon;
+- `tracing`. There are no log records yet, because there is no long-running loop to produce
+  them. The library writes nothing to stdout today and the child verifier now enforces that, so
+  the boundary is held before the logging arrives to fill it;
+- the Windows named pipe. `address()` returns `Unsupported` there rather than a wrong path.
+  This is the increment's one honest gap against section 2, which names both platforms; the
+  Unix side is complete and the pipe needs an access control list, not another abstraction;
+- peer-credential checking. The directory mode already makes the endpoint unreachable by
+  another user, which is what section 1.2 means by the operating system authenticating, so a
+  `SO_PEERCRED` read would need `unsafe` or a dependency to restate a guarantee already held.
 
 ## Stage 8 increment 1 verification
 
