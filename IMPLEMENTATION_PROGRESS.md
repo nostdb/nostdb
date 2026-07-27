@@ -1382,11 +1382,11 @@ the only rule that cannot silently weaken a declaration the author wrote.
 Increment 4 is larger than the three before it put together. It is being taken in parts,
 and this records what is done, what is not, and why the split falls where it does.
 
-Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `8f8db9c`, and `nostdb-cli` `a4ae66d`:
+Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `e2d964d`, and `nostdb-cli` `c0cea1c`:
 link resolution and recursive federation in Core, federated queries, `link list`, `link
 check`, `sync`, and `link add` and `link remove` through the multi-file journal, and the source scanner with
-its hand-written Git-ignore matcher. `./scripts/verify-workspace.sh` passes over all three
-pins, with 544 tests in the Engine and 101 in the command surface.
+its hand-written Git-ignore matcher, and `plan`. `./scripts/verify-workspace.sh` passes
+over all three pins, with 559 tests in the Engine and 109 in the command surface.
 
 ### Recorded decision: resolution reports rather than fails
 
@@ -1604,17 +1604,54 @@ files, almost all of them this project's own `.expected`, `.cypher`, and `.hex` 
 fixtures. Those genuinely have no language this build can name, and saying so is the
 correct answer rather than a gap.
 
+### `plan`, and two counts that must not be confused
+
+`nostdb plan` reports what a build would do and does none of it. Section 17.6's rule is
+that no AI action begins before a plan exists, so the plan is produced from a scan and a
+capability registry alone.
+
+`BuildPlan` carries exactly the shape section 17.6 publishes, field for field. Everything
+else this build knows — the per-language breakdown, the exclusion counts — sits in
+`PlanReport` beside it, so the published contract stays what the contract says.
+
+`semantic_candidates` and the token estimate answer different questions and are kept
+apart. The first is a fact about the source: how many files *could* be enriched. The second
+is what *this* run would spend, which is zero with `ai_mode: off`. A plan can then say "412
+files could be enriched, and this run will spend nothing" rather than leaving a reader to
+infer one from the other.
+
+The token estimate is a band — six bytes per token to two — and the budget check compares
+its top. Understating a cost is precisely what would let a run start a call it cannot
+afford, and the contract requires that a call which *could* cross a hard limit never
+starts. A real tokenizer would narrow the band and would be a dependency bought for an
+estimate that only has to be a safe bound.
+
+`source_revision` is tagged `tree:` for a local working tree and derived from every scanned
+path with its content digest. A provider supplies an immutable commit for a remote source;
+a content-derived revision must never be read as one.
+
+Two numbers this build cannot honestly report are zero rather than omitted.
+`semantic_cache_hits` stays zero until a cache exists, because reporting a hit that cannot
+happen would make the first real cache look like a regression. `structural_files` stays
+zero until an analyzer registers — and `plan` writes a note saying the build is what has no
+analyzer, because "0 covered, 48 unsupported" otherwise reads as a strange project. A unit
+test asserts the registry is empty, so the first analyzer to land fails it and whoever adds
+it is reminded to revisit the plan's counts.
+
+`plan` exits 8 when the estimate would cross a configured limit. Planning succeeded; the
+plan is still printed, because a caller needs to see the number that failed.
+
 ### Not done, and what each needs
 
 | Remaining | Needs |
 | --- | --- |
 | `link refresh` | the GitHub provider in Stage 9. A local link has no snapshot to advance |
-| `plan`, `build` | the scanner is in. Still needed: a `BuildPlan`, the structural parse and context resolution cache keys, a first hand-written analyzer, and the atomic replacement of analyzer-owned contributions |
+| `build` | scanning and planning are in. Still needed: the structural parse and context resolution cache keys, a first hand-written analyzer, and the atomic replacement of analyzer-owned contributions |
 | `apply` | a `GraphChangeSet` on disk, which needs the `change_set_version` contract that is still deferred |
 
-Scanning and ignore handling are done. `build` and `plan` remain the largest single body of
-work left in the Stage, and the parsing-technology decision that blocked them is now made
-and recorded above.
+Scanning, ignore handling, and planning are done, and the parsing-technology decision that
+blocked them is made and recorded above. `build` is what remains, and a first hand-written
+analyzer is the next piece of it.
 
 ## Stage 7 increment 3 verification
 
