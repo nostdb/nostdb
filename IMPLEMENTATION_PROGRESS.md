@@ -1099,7 +1099,7 @@ Stage 7 is taken in four increments, for the same reason Stages 5 and 6 were.
 | Increment | Content | Status |
 | --- | --- | --- |
 | 1 | connect `nostdb-cli` as scaffolding; `.nost` language version 2; `.nost` to graph conversion in both directions | DONE |
-| 2 | the settings contract, then `help`, `init`, `check`, `convert`, `export`, and the exit classes | not started |
+| 2 | the settings contract, then `help`, `init`, `check`, `convert`, `export`, and the exit classes | IN_PROGRESS |
 | 3 | the result envelope contract, then `query` in immediate mode, the multiline REPL, and table, JSON, JSONL, and CSV output | not started |
 | 4 | link resolution and recursive federation in Core, then `link add|remove|list|check|refresh`, `build`, `plan`, `apply`, and `sync` | not started |
 
@@ -1376,6 +1376,75 @@ A node naming two schemas is validated against the union of their fields. If bot
 same key, the declared types must match, and a mismatch raises a diagnostic. If one marks the
 key optional and the other does not, the key is required. Requiring the stricter reading is
 the only rule that cannot silently weaken a declaration the author wrote.
+
+## Stage 7 increment 2: the settings contract, and a blocker
+
+The contract half is done. The command half is blocked on an authorization, not on a
+decision, and the blocker is recorded here rather than worked around.
+
+### Done: `settings_version`
+
+`nostdb-spec` at `fa7fde1` publishes `docs/SETTINGS.md` with 27 fixtures, and
+`nostdb-core` at `755672a` implements it. All 27 reproduce their declared outcome: 6
+accepted, 17 refused with the code they name, and 4 merges producing the declared
+effective document exactly.
+
+`ORPHAN_LINK_SETTINGS` is now registered. `docs/PRD.md` section 28 required it from the
+start and the registry never carried it, which is the same class of gap the query subset
+had with `LINKED_DATABASE_READ_ONLY`. Nothing detected it either time until the contract
+that owns the code was authored.
+
+### Recorded decision: settings live in the Engine
+
+Both the command surface and the daemon read settings and must agree on what a document
+means. The root contract's rule is that shared behavior calls a public `nostdb-core` API
+rather than being implemented twice, so `SettingsDocument` and `Settings` are Core types
+and `nostdb-cli` will call them.
+
+The alternative, treating settings as command-surface configuration, would put the merge
+rule in two repositories and let them drift the first time one is changed.
+
+### Recorded decision: parsing keeps every field optional
+
+The merge is by defined field, so the parsed form must distinguish "absent" from "set to
+the default". A reader that applied defaults first cannot, and the merge collapses into
+last-writer-wins.
+
+An analysis budget goes one further and is a nested option, because `null` is a *defined*
+value meaning unlimited: a project writing it must override a global limit, and a project
+omitting the field must inherit one. Both have a test.
+
+### Blocked: the command surface
+
+`nostdb-cli` still holds scaffolding only, and increment 1 deliberately left "how the CLI
+depends on the Engine" to be decided here rather than guessed at. The decision is forced
+by two rules already in `docs/REPOSITORIES.md`: each child must build and test
+independently, and none may depend on uncommitted sibling state.
+
+| Option | Why it fails |
+| --- | --- |
+| path dependency on `../nostdb-core` | breaks a standalone clone and child CI, which check out `nostdb-cli` alone |
+| vendoring Core | a second copy of the Engine, which every ownership boundary forbids |
+| publishing Core to a registry | `nostdb-core` is `publish = false`, and SSPL-1.0 is source-available |
+| git dependency pinned to an exact commit | correct, and blocked below |
+
+A git dependency is the only option that satisfies both rules, and it requires the pinned
+commit to exist on the remote. It does not:
+
+```text
+nostdb-spec  2 commits unpushed
+nostdb-core  6 commits unpushed
+```
+
+Pushing needs explicit authorization, which the Stage 1 grant covered for creating and
+connecting repositories and which is not assumed here. Until then the CLI crate cannot be
+written against a resolvable dependency, so no part of it was written: a `Cargo.toml`
+naming a commit that does not exist would be a placeholder, and this workspace does not
+create placeholders.
+
+Everything in increment 2 that does not need the CLI is done. What remains is `help`,
+`init`, `check`, `convert`, `export`, and the exit classes, all of which sit on top of
+Core APIs that now exist.
 
 ## Stage 7 increment 1 verification
 
