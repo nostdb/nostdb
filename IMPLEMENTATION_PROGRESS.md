@@ -1,15 +1,19 @@
 # NostDB Implementation Progress
 
-Last updated: 2026-07-27
+Last updated: 2026-07-28
 
-Current stage: `Stage 7 IN_PROGRESS` (increment 1 of 4)
+Current stage: `Stage 8 IN_PROGRESS` (increment 1 of 4)
 
 Current milestone: The clean-slate root workspace is initialized, and the
-specification and Engine repositories `nostdb-spec` and `nostdb-core` are
-connected as exact-commit submodules in the `nostdb` GitHub organization. Root and
-child CI verify the pinned commit set. Each remaining child repository is now a
-named dependency of the Stage that first needs it rather than a blocker on all
-implementation.
+specification, Engine, and command-surface repositories `nostdb-spec`,
+`nostdb-core`, and `nostdb-cli` are connected as exact-commit submodules in the
+`nostdb` GitHub organization, joined now by `nostdb-server` as scaffolding. Root
+and child CI verify the pinned commit set. A configured project can be analyzed,
+built, queried, linked, synchronized, and converted from the command line with no
+daemon running, which is the boundary the daemon must not erase: it manages named
+databases and never becomes a requirement for a path. Each remaining child
+repository is a named dependency of the Stage that first needs it rather than a
+blocker on all implementation.
 
 ## Authority
 
@@ -29,7 +33,7 @@ requirements.
 | 5 | DONE | Parser, sync, and deterministic analysis foundation | Stage 4 |
 | 6 | DONE | openCypher subset and query execution | Stage 5 |
 | 7 | DONE | CLI, REPL, conversion, and link management | Stage 6, plus connected `nostdb-cli` |
-| 8 | PENDING | Per-user local daemon | Stage 7, plus connected `nostdb-server` |
+| 8 | IN_PROGRESS | Per-user local daemon | Stage 7, plus connected `nostdb-server` |
 | 9 | PENDING | GitHub provider | Stage 7, plus connected `nostdb-provider-github` |
 | 10 | PENDING | Skills and AI enrichment workflow | Stages 7 and 9, plus connected `skills` |
 | 11 | PENDING | Plugin manager and WebGPU reference viewer | Stage 7, plus connected `plugins` |
@@ -1152,6 +1156,63 @@ nothing.
 - `query` and every output format, which need the result envelope contract;
 - `build`, `plan`, `apply`, and `sync`, which need the analysis pipeline and link resolution;
 - `catalog`, `server`, `plugin`, and `view`, which belong to Stages 8, 11, and 12.
+
+## Stage 8 scope
+
+Stage 8 is taken in four increments, for the same reason Stages 5 through 7 were.
+
+| Increment | Content | Status |
+| --- | --- | --- |
+| 1 | connect `nostdb-server` as scaffolding; the local protocol and catalog contracts in `nostdb-spec` | IN_PROGRESS |
+| 2 | the daemon: the endpoint, the one-instance OS lock, the OS-user boundary, and catalog persistence | PENDING |
+| 3 | sessions, transaction isolation, query timeouts, per-session resource limits, recovery, and stale-session cleanup | PENDING |
+| 4 | the client side in `nostdb-cli`: `server start|status|stop|run`, `catalog add|remove|list`, and `--database @name` | PENDING |
+
+### Authorized scope
+
+Creating `nostdb-server`, connecting it, and pushing was covered by the Stages 7 through 12
+grant recorded above, and re-confirmed for this repository before it was created. Performed:
+
+- created `https://github.com/nostdb/nostdb-server` as a public repository;
+- pushed its initial commit to `main`;
+- pinned it as a root submodule at `f05de0b`.
+
+### Why the protocol contract comes first
+
+The daemon cannot frame a request until a contract says what a request is, and it cannot
+refuse an incompatible client until the versions it negotiates are published rather than
+implied. `docs/PRD.md` section 21.1 gives the local protocol its own
+`server_protocol_version` and section 21.3 gives the catalog its own `catalog_version`, so
+both are published contracts that happen to have no file format yet. This is the same
+ordering Stage 7 used when the `.nost` language contract preceded `convert`.
+
+### Two codes this Stage must unregister from a deferral list
+
+`SERVER_ALREADY_RUNNING` and `SERVER_PROTOCOL_UNSUPPORTED` are listed in
+`scripts/verify-workspace.sh` as awaiting the contract that will own them. Increment 1 is
+that contract. The verifier fails when a registered code is still listed as awaiting one, so
+registering them in `nostdb-spec` and removing them from that list is one change rather than
+two, and the check that enforces it is the one added after the same gap appeared three times.
+
+### What the scaffolding already enforces
+
+"No TCP or HTTP listener" is a product invariant in `docs/PRD.md` sections 21.1 and 30.6
+rather than a current limitation, so the child verifier enforces it structurally before a
+transport exists to break it. It checks the dependency list as well as the source, because an
+HTTP server crate would supply the listener even if this repository never names the type
+itself. Both refusals were proven to fire rather than assumed to work.
+
+### Deferred out of increment 1
+
+- the daemon itself, including the `nostdb-server` crate. Its initial commit is repository
+  scaffolding only, as every sibling's was when it was connected, so how the daemon depends
+  on the Engine is decided in increment 2 rather than guessed at now;
+- every `server` and `catalog` command, which belongs to increment 4 and lands in
+  `nostdb-cli`, because the command surface is owned there and not here;
+- `--database @name` resolution, which needs both a catalog and a session;
+- the Windows named pipe. It is required by section 21.1 and is not deferred out of the
+  Stage; it belongs to increment 2 with the Unix socket, because one endpoint abstraction
+  covering both is the point rather than a port added afterwards.
 
 ## Resolved conflict: the `.nost` record identifier
 

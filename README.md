@@ -10,9 +10,9 @@ workspace. Runtime implementation does not belong in the root repository.
 
 ## Current status
 
-The root workspace is initialized, and `nostdb-spec`, `nostdb-core`, and
-`nostdb-cli` are connected as submodules pinned to exact commits. No legacy
-runtime code has been copied into this repository.
+The root workspace is initialized, and `nostdb-spec`, `nostdb-core`,
+`nostdb-cli`, and `nostdb-server` are connected as submodules pinned to exact
+commits. No legacy runtime code has been copied into this repository.
 
 `nostdb-spec` publishes the `.nost` language, `.nostdb` container, and query
 subset contracts with a conformance suite. `nostdb-core` implements the graph
@@ -21,10 +21,15 @@ formatter, synchronization, the deterministic analysis boundary, and the
 openCypher subset including writes and explicit transactions. See
 [Implementation progress](IMPLEMENTATION_PROGRESS.md) for the current Stage.
 
-`nostdb-cli` provides `help`, `init`, `check`, `convert`, `export`, and `--version`,
-with the exit classes the product contract fixes.
+`nostdb-cli` provides `help`, `init`, `check`, `convert`, `export`, `query` and its
+REPL, `link`, `plan`, `build`, `apply`, `sync`, and `--version`, with the exit
+classes the product contract fixes. `link refresh` waits for the GitHub provider,
+because a local link has no snapshot to advance.
 
-The remaining six repositories will be created and connected by the Stage that
+`nostdb-server` is repository scaffolding only. The per-user daemon, its local
+protocol, and the named database catalog land across the Stage 8 increments.
+
+The remaining five repositories will be created and connected by the Stage that
 first needs each one.
 
 ## Start here
@@ -44,7 +49,7 @@ nostdb/
 ├── nostdb-spec/              # connected and pinned
 ├── nostdb-core/              # connected and pinned
 ├── nostdb-cli/               # connected and pinned
-├── nostdb-server/            # not yet authorized
+├── nostdb-server/            # connected and pinned, scaffolding only
 ├── nostdb-provider-github/   # not yet authorized
 ├── nostdb-distribution/      # not yet authorized
 ├── homebrew-tap/             # not yet authorized
