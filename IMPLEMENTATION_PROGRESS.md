@@ -1382,11 +1382,11 @@ the only rule that cannot silently weaken a declaration the author wrote.
 Increment 4 is larger than the three before it put together. It is being taken in parts,
 and this records what is done, what is not, and why the split falls where it does.
 
-Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `d26c41d`, and `nostdb-cli` `1e57c74`:
+Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `2ca2803`, and `nostdb-cli` `1e57c74`:
 link resolution and recursive federation in Core, federated queries, `link list`, `link
 check`, `sync`, and `link add` and `link remove` through the multi-file journal, and the source scanner with
 its hand-written Git-ignore matcher, `plan`, the Rust structural analyzer, and `build`.
-`./scripts/verify-workspace.sh` passes over all three pins, with 652 tests in the Engine
+`./scripts/verify-workspace.sh` passes over all three pins, with 666 tests in the Engine
 and 118 in the command surface.
 
 ### Recorded decision: resolution reports rather than fails
@@ -1487,6 +1487,44 @@ acting.
 A stale file and a conflict both exit 4. They are different states with the same
 consequence: synchronization could not proceed and a person has to choose. The product
 contract gives class 4 to a sync conflict and has no closer class for the first.
+
+### The cache keys
+
+Section 17.7's three keys are in, and the rule that governs all of them is what shaped
+them: the Engine's version must not invalidate every cache, because a cache is invalidated
+only by the component contract that affects its result. That is why they are three types
+rather than one key carrying a version. Tests assert both halves — every part of a key moves
+it, and a new analyzer leaves the semantic keys alone while a new model leaves the parses
+alone.
+
+Two details that would otherwise be silent corruption. Each part is length-prefixed before
+digesting, so two keys whose parts differ only in where one ended cannot name one entry; and
+each digest is tagged with its kind, so a parse and a resolution built from the same strings
+cannot collide.
+
+Project tier before user tier, which the contract fixes and which matters: a project may
+hold an artifact produced under settings that differ from the user's default, and reading
+the user's copy first would serve the wrong one. Omitting the user tier is how a project
+disables it.
+
+ writes a  into the cache directory, because  as a whole
+is not excluded — the database inside it is meant to be shared. Writing the file is what
+makes "neither cache is committed by default" true rather than advisory.
+
+What is **not** here is a store: nothing reads or writes a cached artifact yet. Serializing
+a  needs a format decision of its own, and the keys are the half that had a
+published contract to be faithful to. Recording the gap beats shipping a store the keys were
+bent to fit.
+
+### A settings field the contract does not have
+
+Section 17.7 says the user cache "can be disabled per project", and  1 has
+no field for it.  therefore takes the decision as an argument rather
+than reading one, so the capability exists and nothing invents a settings key.
+
+Adding one means amending the settings contract in  and its fixtures, which is
+a contract change rather than an implementation detail, and it is left for the increment
+that also has a store to disable.
 
 ### Not done, and what each needs
 
@@ -1785,7 +1823,7 @@ objects they are. They are what a return to per-file reuse has to pass.
 | --- | --- |
 | `link refresh` | the GitHub provider in Stage 9. A local link has no snapshot to advance |
 | per-file reuse | understanding why resolving against a fresh index and a recorded one together loses edges that a single index finds. The graph-comparison tests are in place and are what a second attempt has to pass |
-| the cache keys in 17.7 | reuse currently compares digests against the graph. The three published cache-key shapes, and the project and user caches they sit in, are not built |
+| a cache store | the keys and the tier layout are in; nothing reads or writes an artifact. Needs a serialization format for a , and the settings field above to disable the user tier |
 | AI enrichment | the analysis packet in 17.5 and a provider. `plan` already produces the budget check it has to pass |
 | `apply` | a `GraphChangeSet` on disk, which needs the `change_set_version` contract that is still deferred |
 
