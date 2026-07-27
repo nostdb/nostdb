@@ -1382,11 +1382,11 @@ the only rule that cannot silently weaken a declaration the author wrote.
 Increment 4 is larger than the three before it put together. It is being taken in parts,
 and this records what is done, what is not, and why the split falls where it does.
 
-Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `2ca2803`, and `nostdb-cli` `1e57c74`:
+Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `46ef388`, and `nostdb-cli` `54d75ee`:
 link resolution and recursive federation in Core, federated queries, `link list`, `link
 check`, `sync`, and `link add` and `link remove` through the multi-file journal, and the source scanner with
 its hand-written Git-ignore matcher, `plan`, the Rust structural analyzer, and `build`.
-`./scripts/verify-workspace.sh` passes over all three pins, with 666 tests in the Engine
+`./scripts/verify-workspace.sh` passes over all three pins, with 677 tests in the Engine
 and 118 in the command surface.
 
 ### Recorded decision: resolution reports rather than fails
@@ -1800,10 +1800,45 @@ disables it.
 whole is not excluded — the database inside it is meant to be shared. Writing the file is
 what makes "neither cache is committed by default" true rather than advisory.
 
-What is **not** here is a store: nothing reads or writes a cached artifact yet. Serializing
-a `FileAnalysis` needs a format decision of its own, and the keys are the half that had a
-published contract to be faithful to. Recording the gap beats shipping a store the keys were
-bent to fit.
+### The parse cache, and what it recovers
+
+The store is in, and it gives back the incremental win that making reuse all-or-nothing gave
+up — without touching the thing that broke. A cached parse **still enters the build**, so the
+index references resolve against is complete and resolution is unaffected. What is saved is
+the reading and the parsing, not the resolving.
+
+On this crate, editing one file: 46 files enter the build, 45 parses come from cache. A
+forced rebuild immediately after reports zero created and zero deleted, so the incremental
+graph is the graph a full build produces.
+
+The artifact format is **not** a specification contract, and deciding that was the question.
+A cache entry is written and read by the Engine alone, and its key already carries
+`graph_schema_version` — so an artifact written under an older shape can never be *found* by
+a newer key. There is no migration to write and no reader that has to understand two
+layouts: the entry misses and the work is redone. A version field remains for the case where
+a build changes the shape without bumping the constant.
+
+Reuse is now decided up front from digests alone rather than discovered mid-pass and
+recursed on. The recursion re-ran pass one and found what the outer pass had just stored, so
+a rebuild after editing one of two files reported *both* parses as cache hits — a number
+that was true and told the reader the wrong thing.
+
+Three smaller decisions, each with a test:
+
+- an artifact is stored **before** the build commits. A parse depends on the bytes and the
+  analyzer, not on whether the transaction that follows succeeds, so an abandoned build
+  still leaves work its successor can use;
+- writes go to the project tier and reads to both. A shared user cache written to by every
+  project is a trust surface the contract has not designed — one project's build placing
+  artifacts another project's build reads — and 17.7 says as much about a team cache one
+  step further out;
+- a corrupt entry is a miss and is deleted. A cache is derived data, and a build that
+  refused to run because an entry was truncated would be choosing the cache over the thing
+  it exists to speed up.
+
+And one reporting fix: a build that reused everything said `structural skipped`, which is
+the opposite of what happened. Everything is covered; it was covered earlier and nothing has
+changed since.
 
 ### A settings field the contract does not have
 
@@ -1821,7 +1856,7 @@ that also has a store to disable.
 | --- | --- |
 | `link refresh` | the GitHub provider in Stage 9. A local link has no snapshot to advance |
 | per-file reuse | understanding why resolving against a fresh index and a recorded one together loses edges that a single index finds. The graph-comparison tests are in place and are what a second attempt has to pass |
-| a cache store | the keys and the tier layout are in; nothing reads or writes an artifact. Needs a serialization format for a `FileAnalysis`, and the settings field above to disable the user tier |
+| the settings field above | amending the settings contract in `nostdb-spec` so a project can disable the user cache tier. The capability exists; only the way to ask for it is missing |
 | AI enrichment | the analysis packet in 17.5 and a provider. `plan` already produces the budget check it has to pass |
 | `apply` | a `GraphChangeSet` on disk, which needs the `change_set_version` contract that is still deferred |
 
