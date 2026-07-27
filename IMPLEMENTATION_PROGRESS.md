@@ -1382,12 +1382,12 @@ the only rule that cannot silently weaken a declaration the author wrote.
 Increment 4 is larger than the three before it put together. It is being taken in parts,
 and this records what is done, what is not, and why the split falls where it does.
 
-Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `4c051a8`, and `nostdb-cli` `a916f89`:
+Done, at `nostdb-spec` `85d59c1`, `nostdb-core` `91ed367`, and `nostdb-cli` `4a57e06`:
 link resolution and recursive federation in Core, federated queries, `link list`, `link
 check`, `sync`, and `link add` and `link remove` through the multi-file journal, and the source scanner with
-its hand-written Git-ignore matcher, `plan`, and the Rust structural analyzer.
-`./scripts/verify-workspace.sh` passes over all three pins, with 610 tests in the Engine
-and 110 in the command surface.
+its hand-written Git-ignore matcher, `plan`, the Rust structural analyzer, and `build`.
+`./scripts/verify-workspace.sh` passes over all three pins, with 645 tests in the Engine
+and 115 in the command surface.
 
 ### Recorded decision: resolution reports rather than fails
 
@@ -1686,17 +1686,59 @@ from 48 to 2, and the estimate falls from 189k–549k tokens to 2k–5k. That is
 analysis of supported source spends zero AI tokens" invariant showing up as a number rather
 than as a claim.
 
+### `build`, and what a real project found that fixtures did not
+
+`nostdb build` analyzes a project's source and commits it. `GraphChangeSet` already
+described what a producer proposes and nothing carried it out, so `apply` was written
+first: it is the only place ownership is enforced against real records. A removal drops one
+`(owner, source unit)` pair and leaves every other contribution alone, so an analyzer
+refresh cannot delete what a person wrote about the same record.
+
+A path locates a record; it does not identify one. A rebuild finds the `File` record whose
+`path` matches, takes the source unit persisted on its contribution, and reuses the
+identifiers stored under it. Moving a function down a file keeps its identifier; renaming it
+retires the old record and mints a new one, which is correct rather than convenient — a
+renamed function is not the same function to anything that referred to it by name.
+
+An unresolved call is counted, never invented. Not creating the edge already satisfies "a
+missing symbol must never produce a null endpoint", and at syntactic precision the analyzer
+cannot tell a genuinely missing symbol from one in a dependency it was never given. This
+crate has some nine thousand such call sites; manufacturing a Placeholder for each would
+assert that the project declares them.
+
+Three defects came out of building `nostdb-core` with it, and every one of them appeared
+only on the **second** build — the case a single-shot fixture cannot reach:
+
+- 243 duplicate node identifiers. A qualified name is not unique within a file: Rust allows
+  several inherent `impl` blocks for one type, and `execute.rs` has three for `Scoped`.
+  Identity is now keyed by qualified name *and* occurrence, with the occurrence stored on the
+  record rather than inferred from the order storage returns rows in;
+- 566 duplicate edge identifiers, once edges were given stable identity. A function calling
+  another three times produced three `CALLS` edges between one pair. A relation is a fact
+  and not an occurrence, so it is one edge carrying a count — which is both the correct model
+  and the only one a change set accepts;
+- an unchanged rebuild reported `3335 created, 3335 deleted`. The delete-then-restate is how
+  the ownership rule is expressed, but reporting it literally makes an untouched tree look
+  like it rewrote the database. A record withdrawn and restated in one set is counted as an
+  update, and an unchanged rebuild now reports zero created and zero deleted.
+
+The pipeline runs end to end over this crate: 45 files, 3335 nodes, 4776 edges, 2052
+references resolved. Appending one function and rebuilding reports `1 created, 3335
+updated`, and a Cypher query finds it at the right line.
+
 ### Not done, and what each needs
 
 | Remaining | Needs |
 | --- | --- |
 | `link refresh` | the GitHub provider in Stage 9. A local link has no snapshot to advance |
-| `build` | scanning, planning, and a first analyzer are in. Still needed: turning a `FileAnalysis` into a `GraphChangeSet`, cross-file reference resolution with Placeholders, the two cache keys, and the atomic replacement of analyzer-owned contributions |
+| incremental skipping | PRD 17.8. A rebuild currently re-reads every file. The digests and the source revision needed to skip unchanged ones are already recorded; what is missing is the comparison and the two cache keys in 17.7 |
+| AI enrichment | the analysis packet in 17.5 and a provider. `plan` already produces the budget check it has to pass |
 | `apply` | a `GraphChangeSet` on disk, which needs the `change_set_version` contract that is still deferred |
 
-Scanning, ignore handling, planning, and the first analyzer are done. `build` is what
-remains: committing what the analyzer found, which needs a `GraphChangeSet`, cross-file
-resolution, and ownership-scoped replacement.
+Every command this increment scoped is now implemented except `link refresh` and `apply`,
+which are blocked on Stage 9 and on an unauthored contract respectively. What remains inside
+`build` is optimization and enrichment rather than correctness: it produces a correct
+database today, and re-reads files it could skip.
 
 ## Stage 7 increment 3 verification
 
