@@ -1214,6 +1214,86 @@ itself. Both refusals were proven to fire rather than assumed to work.
   Stage; it belongs to increment 2 with the Unix socket, because one endpoint abstraction
   covering both is the point rather than a port added afterwards.
 
+## Conflict: a published code whose implementation is not the Engine
+
+Found while starting Stage 8 increment 1, before registering anything. Recorded before
+acting, as the root `AGENTS.md` requires. The current valid behavior is unchanged and no
+code has been registered.
+
+### The conflict
+
+`scripts/verify-workspace.sh` requires the diagnostic vocabulary `nostdb-core` recognizes
+and the registry `nostdb-spec` publishes to be **exactly** equal. Both hold 33 codes today
+and the check passes.
+
+Increment 1 must publish `server_protocol_version` 1, and `docs/PRD.md` section 28 requires
+two codes for it:
+
+```text
+SERVER_ALREADY_RUNNING
+SERVER_PROTOCOL_UNSUPPORTED
+```
+
+Neither is an Engine code. The daemon raises both, and `nostdb-server` has no crate yet.
+Registering them therefore fails the equality check, because `nostdb-core` will never
+declare a code it cannot emit. Leaving them unregistered is not available either: they sit
+on the same script's `awaiting_a_contract` list, increment 1 is the contract that list is
+waiting for, and a registered code still listed there is itself a failure.
+
+Every code in the registry so far has been an Engine code, which is why the check could
+assume one implementation. These are the first two that are not.
+
+### It is not only Stage 8
+
+Six more codes on that same deferral list have a non-Engine owner, so this recurs in every
+remaining Stage rather than being a Stage 8 quirk:
+
+| Code | Owner | Stage |
+| --- | --- | --- |
+| `PROVIDER_AUTH_REQUIRED`, `PROVIDER_PERMISSION_DENIED` | `nostdb-provider-github` | 9 |
+| `PLUGIN_REQUIRED`, `PLUGIN_INCOMPATIBLE`, `PLUGIN_DIGEST_MISMATCH` | `nostdb-cli` and `plugins` | 11 |
+| `VIEW_CAPACITY_EXCEEDED` | a viewer plugin | 11 |
+
+### The options
+
+1. **The Engine declares every published code**, including ones no Engine API can return.
+   Cheapest, and keeps one comparison. It costs the meaning of the Engine's error enum,
+   which becomes a registry rather than that crate's error surface, and it contradicts the
+   recorded decision to use typed errors instead of unregistered codes.
+2. **Compare the registry against the union of every implementation's vocabulary.** Most
+   faithful. It cannot be done in increment 1, because the only other implementation is a
+   crate that increment 2 creates, so increment 1 would publish two codes nothing verifies.
+3. **Give each code an explicit owner in `diagnostics.json`.** The root check then compares
+   the Engine against exactly the codes owned by the Engine, and requires every other
+   owner's codes to be declared by that owner once its crate exists, listing the ones that
+   are not yet implemented the same visible way `awaiting_a_contract` already lists codes
+   awaiting a contract.
+
+Option 3 is the recommendation. It preserves what the check is for, needs no crate that
+does not exist, keeps the deferral visible instead of silent, and answers Stages 9 and 11
+at the same time rather than meeting this wall three more times. It also fits the existing
+registry, which already records a `contract` per code and would gain an `owner` beside it.
+
+Awaiting the owner's decision. Increment 1 stops here, with the two registry defects below
+fixed, because publishing either contract means registering its codes.
+
+### Two registry defects fixed while finding this
+
+`change_set_version` was published in Stage 7 increment 4, and `versions.json` recorded it
+as `specified`. The `VERSIONS.md` row still read `deferred` and `not yet specified`.
+
+The check that exists to hold those two forms together passed anyway. It asked whether the
+row *contained* the status string, and `not yet specified` contains `specified`, so a row
+stating the opposite of the registry satisfied it. Both the version and the status column
+were compared that loosely.
+
+The check now splits the row into columns and compares the status, the current version, and
+the linked document exactly. It was run against the stale row first and does fail on it:
+
+```text
+VERSIONS.md row for change_set_version states status deferred, registry says specified
+```
+
 ## Resolved conflict: the `.nost` record identifier
 
 Found while checking what Stage 7 needs. Recorded before acting, as the root `AGENTS.md`
