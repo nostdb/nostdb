@@ -2,10 +2,10 @@
 
 Last updated: 2026-07-28
 
-Current stage: Stage 9 is `IN_PROGRESS`, with increments 1 through 6 done. Both halves of
-the conversation exist, speak the same protocol, and are tested end to end against recorded
-responses. The one thing standing between this and a working provider is a single `Http`
-implementation. Increment 7 supplies it, with `link refresh` and remote federation.
+Current stage: Stage 9 is `IN_PROGRESS`, with increments 1 through 7 done. The provider is a
+working executable: it speaks the protocol on standard input and output and reaches GitHub.
+Increment 8 is `link refresh` and remote federation, which are Engine-side work on top of a
+provider that already answers.
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification, Engine, and command-surface repositories `nostdb-spec`,
@@ -1216,7 +1216,8 @@ product has, and the first that is not a local filesystem.
 | 4 | the HTTP boundary, ref-to-commit resolution, tree enumeration, and blob reading | DONE |
 | 5 | the request loop | DONE |
 | 6 | the per-snapshot tree cache | DONE |
-| 7 | an HTTP client, `link refresh`, and read-only federation over a remote `.nostdb` | PENDING |
+| 7 | an HTTP client, and the binary that serves the protocol | DONE |
+| 8 | `link refresh`, and read-only federation over a remote `.nostdb` | PENDING |
 
 The contract comes first for the same reason it did in Stages 7 and 8: the provider is a
 separate executable, so the protocol between it and the Engine is the whole interface, and
@@ -1435,17 +1436,52 @@ Both halves have a test that **counts requests**. The existing tests passed with
 the cache, which is exactly the failure mode a cache test exists to avoid: a cache nothing
 measures is a claim, not a behavior.
 
+### Increment 7: the client, and the argument it was deferred for
+
+`ureq` behind the `Http` trait, confined to `src/client.rs`. Everything else speaks the
+trait, so replacing it is one file and no test changes — which is what the trait was for and
+why the choice did not have to be made on the first day.
+
+Chosen over `reqwest` because this provider is **synchronous by design**: it reads a line,
+answers it, and reads the next. An async client would bring an executor into a program with
+nothing to schedule, along with its dependency tree and a class of bug — a blocked reactor,
+a runtime nested in a runtime — that a line-oriented process has no reason to own. TLS
+through rustls rather than the platform's OpenSSL, which matters because this executable
+ships inside official distributions and a link-time dependency on a system library is a
+support burden on every platform it reaches.
+
+Three things in the client are about not trusting what a host sends:
+
+- **the response body is capped.** A repository somebody else controls can contain a file of
+  any size, and an uncapped read fails as an allocation rather than as a diagnostic anybody
+  can act on;
+- **the API version is pinned.** An unpinned client is one whose behavior changes without a
+  release;
+- **a transport error's message is this crate's own, never the library's.** A transport
+  error can carry a URL, a URL can carry whatever a caller put in it, and this is the one
+  place in the crate where a credential could reach a diagnostic.
+
+The binary resolves its credential from the environment — first among the resolvers section
+15.3 permits — and reads it once.
+
+Driven end to end, the executable answers a handshake and refuses an unknown request, which
+is the first time both halves of Stage 9 have been observable from outside a test.
+
 ### Where Stage 9 stands
 
-Everything except one `Http` implementation. The protocol is specified and gated by
-fixtures, the Engine speaks it, the provider serves it, locators canonicalize, and the
-GitHub API layer resolves, enumerates, and reads — 40 tests, none of which touches a
-network.
+The provider works. The protocol is specified and gated by fixtures, the Engine speaks it,
+the provider serves it on standard input and output, locators canonicalize, and the GitHub
+API layer resolves, enumerates, reads, and caches — 47 tests, **none of which touches a
+network**.
 
-That is the shape the transport trait was chosen for. What remains is genuinely one file:
-a client behind `Http`, and then `link refresh` and federation on top of a provider that
-already works. It is also the increment that finally needs the live conformance run and the
-credential that the scope has named as unauthorized since it was written.
+What remains is Engine-side: `link refresh` recording a newer commit, and read-only
+federation over a remote `.nostdb`. Both sit on top of a provider that already answers.
+
+What also remains, and is not an increment, is the **live conformance run against a real
+repository with a real credential**. The scope has named it unauthorized since it was
+written, and nothing built since has changed that: every test here proves the provider
+behaves correctly against a *recorded* GitHub, and only a live run proves the recording is
+what GitHub actually sends.
 
 ### What section 16 pins down before any code
 
