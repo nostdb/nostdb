@@ -1186,7 +1186,7 @@ runs alongside the Engine.
 | 3 | connect `plugins`; a reference manifest and the authoring guidance | DONE |
 | 4 | reading a plugin source and validating a manifest | DONE |
 | 5 | `nostdb plugin add`: fetching, digests, consent, and the install record | DONE |
-| 6 | out-of-process execution and the Engine-owned exchange stream | PENDING |
+| 6 | out-of-process execution and the Engine-owned exchange stream | DONE |
 | 7 | the viewer's exchange format, and a reference viewer that consumes it | PENDING |
 
 ### Increment 2: a manifest is a request, not a grant
@@ -1325,6 +1325,239 @@ In `nostdb-cli`:
   `LINKED_DATABASE_READ_ONLY` recorded in Stage 6;
 - `plugin list` and `plugin remove`, refused by name rather than falling through to "unknown",
   which is the treatment `link refresh` established.
+
+## Stage 11 increment 6 scope
+
+The first point in this project where code somebody else wrote actually runs. Increment 5 recorded
+what was approved so that something could later be refused; this is the thing that refuses.
+
+In `nostdb-spec`:
+
+- author `plugin_protocol_version`, reserved since Stage 2 and unauthored, in
+  `docs/PLUGIN_PROTOCOL.md`: the transport, the handshake, invoking an action, the exchange
+  handoff, and the refusals;
+- the same line-and-bytes framing the provider protocol uses. A second framing would be a second
+  set of framing bugs, and this project already has one implementation of that reader worth
+  reusing rather than paraphrasing;
+- the **exchange as an artifact handoff** rather than a payload format. The protocol says what
+  kind of artifact is being handed over, where, and what its digest is; what is *inside* it is a
+  media type that evolves separately. Increment 7 adds the viewer's, and nothing published here
+  has to be replaced when it does;
+- the pre-execution checks: the recorded digests, the Engine range again, and the handshake
+  agreeing with the manifest that was approved;
+- register the codes execution needs, and `PLUGIN_REQUIRED` only if this increment can raise it;
+- fixtures for the protocol messages and for the refusals.
+
+In `nostdb-cli`:
+
+- re-verify both recorded digests against the installed directory before starting anything, and
+  refuse `PLUGIN_DIGEST_MISMATCH` when either moved;
+- check the recorded approval rather than the manifest on disk, which is the whole point of
+  having recorded it;
+- start the plugin as a child process with a shell-free argument vector, hand it the exchange,
+  and reap it — including when it never answers;
+- `nostdb plugin list` and `nostdb plugin remove`, refused by name in increment 5 and
+  implementable now that a record has something to be checked against;
+- `nostdb plugin run`, so the mechanism is reachable and inspectable before an action depends on
+  it. That is the same reasoning increment 4 used for a dispatcher that prints the command.
+
+### Deferred out of increment 6
+
+- the viewer's exchange format, `view.html`, `view.data.bin`, and the rendering tiers, which are
+  increment 7 and are what `docs/PRD.md` section 24 specifies;
+- a sandbox. The MVP does not implement one and must not describe the process boundary as one.
+
+### The order is the safety property
+
+Every check happens before the plugin process exists, and the order is normative rather than
+incidental:
+
+1. the plugin is installed — a name with no record is `PLUGIN_REQUIRED`;
+2. both recorded digests still hold over the installed directory — `PLUGIN_DIGEST_MISMATCH`;
+3. the Engine range still admits this build — `PLUGIN_INCOMPATIBLE`;
+4. the action is one the approved manifest declared — `PLUGIN_ACTION_UNKNOWN`.
+
+Step 4 refuses *before* the process starts, so a plugin is never launched to be told no. And the
+ordering of 2 before 3 and 4 is what makes those two possible at all — see below.
+
+### The gap the record had, and why the answer was not more record
+
+The record carries the permissions, the version, the commit, and the digests. It does not carry the
+entrypoint, the declared actions, or the Engine range — and steps 3 and 4 need all three.
+
+Two answers were available. Duplicating the manifest into the record would have made the record a
+second copy of a document that already exists, with two ways for them to disagree and no rule for
+which wins. The other is the one taken: **after the digest check, the installed manifest is the
+approved manifest, byte for byte**, so reading it is reading what was approved.
+
+`PLUGIN_PROTOCOL.md` section 1.3 now says so outright, because section 1.2 — "the approval is the
+authority, never the manifest on disk" — reads like a prohibition on ever opening that file. It is
+not. It is a prohibition on reading it *unverified*, and the difference is one step in an ordered
+list. An implementer who missed the distinction would have duplicated the manifest.
+
+A test proves the property rather than the rule: an `exfiltrate` action added by editing the
+installed manifest does not become invocable, because the run is refused before the file is read.
+
+### The installed directory is effectively read-only, and that is a consequence rather than a rule
+
+Recomputing the tree digest over the installed directory means a plugin that writes into its own
+directory fails its **next** invocation. The contract states that rather than leaving it to be
+discovered: a plugin that treats its installation as scratch space appears to work once and then
+refuses.
+
+It is detected, not prevented. Nothing stops a plugin from writing there, which is section 1.1
+again — every rule here is about what the manager hands over and what it accepts back, never a
+restraint on what a plugin can do.
+
+A symbolic link found in the installed directory is refused rather than followed. No installation
+writes one, so one that is there arrived afterwards, and following it would digest a file outside
+the plugin.
+
+### The exchange is a handoff, not a format
+
+The protocol says what kind of artifact is being handed over, where, how long it is, and what its
+digest is. It does not say what is inside it.
+
+That separation is the reason increment 7 costs nothing here: the viewer's binary format arrives as
+another media type and nothing published in this increment is replaced. Version 1 defines one
+media type, a versioned JSON graph document, and the contract says outright that it is
+"deliberately unremarkable — it exists so the handoff can be exercised end to end".
+
+Three properties of the handoff are worth naming:
+
+- **the artifact is absent when `graph_read` was not approved.** That absence is the permission
+  meaning something. A manager that built one and withheld it would have read the graph for
+  nothing, and a manager that supplied one anyway would have made the field decorative;
+- **the digest travels with it**, and a plugin verifies before interpreting. The manager is not
+  asking to be trusted; it is stating what it wrote;
+- **it is removed when the invocation ends, including when it failed.** An artifact left behind is
+  authorized graph data sitting in a temporary directory after the authorization ended. A `Drop`
+  holds that rather than a cleanup path somebody has to remember.
+
+### What a plugin says about itself is a separate claim from what its bytes are
+
+The digests cover the files. The handshake covers what the running process asserts, and a plugin
+whose files are exactly as installed can still answer that question untruthfully.
+
+So a handshake claiming an action the approved manifest never declared is
+`PLUGIN_IDENTITY_MISMATCH`, refused before anything is invoked. Claiming **fewer** actions is not a
+mismatch: a plugin may implement less than it advertised, and invoking a missing one is refused by
+name — a smaller problem than a plugin claiming more.
+
+`plugin_version` is read and never compared. It is what the process says it is; an edited manifest
+is what the digests detect, and comparing the two would report the same defect twice under a code
+that describes it worse.
+
+### A code that was a synonym, and the tripwire that found it
+
+The protocol contract first minted `PLUGIN_NOT_INSTALLED`, with a section arguing why it was not
+`PLUGIN_REQUIRED`: the latter, per `docs/PRD.md` section 23.4, belongs to a flow that knows which
+plugin it wants and can name a pinned source, and the former to a user who named one themselves.
+
+Publishing that section failed `every_code_shaped_name_in_a_contract_is_registered` — a specified
+contract mentioned `PLUGIN_REQUIRED`, which the registry did not carry. The tripwire was right, and
+it forced the question the argument had been avoiding.
+
+The argument turned out to rest on something the contract forbids. It assumed a caller would find
+an install command in the message, and every protocol in this project states that `message` carries
+no structure a caller may branch on. With that removed, the two codes answer one question and one
+of them was a synonym.
+
+So `PLUGIN_REQUIRED` covers both directions, is registered, is raised by `plugin run` and
+`plugin remove`, and left the root's awaiting-a-contract list. The increment 5 record predicted it
+would arrive with the viewer; it arrived one increment earlier because a command that names a plugin
+by hand can be given one that is not there.
+
+### Who has the defect decides the code
+
+Five fixtures disagreed with the implementation on first run, all the same way, and the
+implementation was right: `PLUGIN_REQUEST_INVALID` is a plugin's complaint about a message it was
+**sent**, and a malformed **reply** is the plugin breaking the protocol, which is `PLUGIN_FAILED`.
+
+The distinction is worth a separate code because it is worth a different response. A caller seeing
+`PLUGIN_REQUEST_INVALID` has a manager to fix or a version to reconcile; one seeing `PLUGIN_FAILED`
+has a plugin to report to its author. Collapsing them would send a user to look in the wrong place.
+
+Every fixture in `message/invalid/` now declares the `role` of the message it holds, and both the
+specification harness and the implementation's suite check the role-to-code rule. The fixtures were
+written before the section 7 table attributed each code to a side; writing the rule down is what
+made them checkable.
+
+### The transport is the provider's, deliberately
+
+The published protocol uses the framing `PROVIDER_PROTOCOL.md` already defines, so the
+implementation uses the reader that implements it — `ProviderProcess`, unchanged.
+
+A second framing would be a second set of framing bugs, and the subtle one is worth solving once: a
+buffered line reader will consume part of a fixed-length content run while looking for a newline,
+and the bytes it swallowed are gone. The type's name is about where the framing came from rather
+than what it carries. Renaming it would churn a public API `link refresh` also uses, for a naming
+nit; it is recorded here instead so the next reader is not left wondering.
+
+### Two commands that increment 5 refused by name
+
+`plugin list` and `plugin remove` were refused with a message saying nothing yet executed an
+installed plugin. Something does now, so both are implemented.
+
+`list` reads the **record**, not the plugin directories. A listing built from what is on disk would
+report a directory somebody copied in as an installation, which is the one distinction the record
+exists to make — and a test asserts exactly that case is refused.
+
+`remove` updates the record first and the directory second. A directory removed first would leave a
+record naming files that are gone, which every check here treats as tampering. An empty listing
+writes its explanation to stderr, because a caller piping the output should receive nothing rather
+than a sentence.
+
+`plugin run` is new surface the product contract does not name. It exists so the mechanism is
+reachable and inspectable before an action depends on it, which is the reasoning increment 4 used
+for a dispatcher that prints its command. The action may be omitted when a plugin declares exactly
+one; with more than one, naming it is required, because choosing between two on a user's behalf is
+guessing.
+
+### Stage 11 increment 6 verification
+
+Passed on 2026-07-28 in `nostdb-spec` at `a2f0fff`, `nostdb-cli` at `4c0c576`, and
+`plugins` at `97be6e6`.
+
+Rust command set clean in both Rust children:
+
+- `cargo fmt --check`
+- `cargo check --all-targets --all-features`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test --all-targets --all-features` — 84 unit and 130 integration tests in the command
+  surface, 12 of them the execution flow and 3 the new conformance suite; 13 test binaries in the
+  specification harness
+
+Fixtures published and gated:
+
+| Suite | Fixtures | What it establishes |
+| --- | --- | --- |
+| `plugin-protocol/message/valid` | 8 | read, with every kind version 1 defines represented |
+| `plugin-protocol/message/invalid` | 16 | refused with the declared code, and the role-to-code rule holds |
+| `plugin-protocol/handshake` | 8 | agrees with the approval, or is refused with the declared code |
+
+Repository and workspace:
+
+- `./scripts/verify-repository.sh` in `nostdb-spec`, `nostdb-cli`, and `plugins`
+- `./scripts/verify-workspace.sh` in the root, which now runs three plugin conformance suites and
+  reports the diagnostic ownership of all fourteen `nostdb-cli` codes
+- `git diff --check`
+
+Two workspace tripwires fired as designed:
+
+| Tripwire | What it caught |
+| --- | --- |
+| `every_code_shaped_name_in_a_contract_is_registered` | a published contract naming `PLUGIN_REQUIRED`, which the registry did not carry — the synonym above |
+| the root's `awaiting_a_contract` list | `PLUGIN_REQUIRED` became registered and had to leave the deferral list |
+
+### One correction carried in from the previous increment
+
+`plugins/AUTHORING.md` still told authors that a source with no ref resolves the default branch,
+which the resolution recorded under increment 5 had made untrue. It is the document authors
+actually read, so a stale rule there is worse than a stale rule anywhere else. Corrected at
+`97be6e6`, with the practical consequence added: publish a tag and tell people to install it by
+name, because a version in an install command is a record a user can read without opening a lock
+file.
 
 ## Stage 11 increment 5: the half that fetches
 

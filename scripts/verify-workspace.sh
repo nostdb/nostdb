@@ -314,7 +314,6 @@ if [ -f nostdb-spec/diagnostics.json ]; then
 ANALYZER_UNSUPPORTED
 ANALYSIS_PARTIAL
 AI_BUDGET_EXCEEDED
-PLUGIN_REQUIRED
 PROVIDER_AUTH_REQUIRED
 PROVIDER_PERMISSION_DENIED
 VIEW_CAPACITY_EXCEEDED
@@ -430,6 +429,10 @@ if [ -d nostdb-spec/fixtures ]; then
   # manifest is what an author writes and the record is what the manager writes, and the two
   # versions move independently.
   run_conformance_suite nostdb-cli plugin_install_conformance
+
+  # And the protocol, which is a third contract with a third version: what an author writes, what
+  # the manager records, and what the two processes say to each other all move separately.
+  run_conformance_suite nostdb-cli plugin_protocol_conformance
 fi
 
 git diff --check
