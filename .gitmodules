@@ -13,3 +13,6 @@
 [submodule "nostdb-provider-github"]
 	path = nostdb-provider-github
 	url = https://github.com/nostdb/nostdb-provider-github.git
+[submodule "skills"]
+	path = skills
+	url = https://github.com/nostdb/skills.git

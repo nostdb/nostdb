@@ -2,7 +2,8 @@
 
 Last updated: 2026-07-28
 
-Current stage: Stage 10 is `IN_PROGRESS` at increment 1, which records the scope below.
+Current stage: Stage 10 is `IN_PROGRESS` at increment 2. `skills` is connected as
+scaffolding and the action table is written; no action is implemented.
 
 One thing Stage 9 built is unverified against reality: every test proves the provider behaves
 correctly against a *recorded* GitHub, and only a live run with a real credential proves the
@@ -1170,11 +1171,45 @@ first component in this project that is allowed to call a model.
 | Increment | Content | Status |
 | --- | --- | --- |
 | 1 | this scope | DONE |
-| 2 | connect `skills`; the action table and its declared AI usage | PENDING |
+| 2 | connect `skills`; the action table and its declared AI usage | DONE |
 | 3 | Engine resolution, and the version check that decides compatibility | PENDING |
 | 4 | AI-free actions, each proving it calls the same Core command the CLI does | PENDING |
 | 5 | the analysis packet in PRD 17.5, and the budget check before any call | PENDING |
 | 6 | natural-language read, write, and the ambiguous case | PENDING |
+
+### Authorized scope
+
+Creating `skills`, connecting it, and pushing was covered by the Stages 7 through 12 grant,
+relied on directly rather than re-confirmed — which is the direction recorded under Stage 9
+and the reason this asks nothing.
+
+Performed: created `https://github.com/nostdb/skills` as a public repository, pushed its
+initial commit, and pinned it as a root submodule at `f5a6742`.
+
+Apache-2.0. A Skill is meant to be read, forked, and replaced, which a copyleft licence
+would discourage.
+
+### Increment 2: the action table, before there are actions
+
+The table is written first because the declaration is the part that has to be true before
+anything runs. An action that could quietly become AI-requiring is one nobody can budget
+for, and `--ai=off` only means something if it is a filter over a declared column rather
+than a hope.
+
+Two rows carry most of the weight:
+
+- **`none` obliges an action to call the same Core command the CLI calls** — not an
+  equivalent one. Two implementations of one action is two answers to one question, and
+  which a user gets would depend on which surface they happened to use. Every `none` row is
+  therefore a row a fixture can pin, and that is where this Stage's tests go;
+- **`required` with no model fails.** It does not fall back to a deterministic approximation
+  and report success, because a caller who asked a question in English and got an answer
+  derived some other way has been told something untrue about where it came from.
+
+The verifier checks what this repository can get wrong without compiling anything: no
+database writer, no unpinned `latest` fallback, and no credential. The last matters more here
+than elsewhere — this repository holds prompts, which is the easiest place in the product for
+a secret to be pasted by accident.
 
 ### What makes this Stage different from every one before it
 
