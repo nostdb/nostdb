@@ -41,6 +41,11 @@ jobs:
         # skips and says so; here they are always present, so a skip would be a gap.
         env:
           NOSTDB_SPEC_FIXTURES: ${{ github.workspace }}/nostdb-spec/fixtures
+          # Several children's suites run here as one operating-system user, so anything binding a
+          # per-user singleton — the daemon's endpoint and its lock — is not safe to run. A child
+          # that owns one leaves it off when this is set and says so, and runs it in its own CI
+          # where it has the runner to itself.
+          NOSTDB_SHARED_RUNNER: "1"
         run: |
           git submodule foreach --recursive '
             if [ -x scripts/verify-repository.sh ]; then

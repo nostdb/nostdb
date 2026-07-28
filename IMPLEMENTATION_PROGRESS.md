@@ -1551,6 +1551,31 @@ every document already uses. The fakes answer the real shape, and the suite chec
 one is on the path — the check that stops this returning. Proven against the built binary: before the
 fix a real Engine on the path was refused, and after it resolves.
 
+### A second flake, and what was and was not fixed
+
+Root CI went red again, this time on the Stage 8 daemon round trip: `no daemon is listening`.
+`start_daemon` had reported success, so the daemon acquired its lock and then was not there when the
+query ran.
+
+**The cause is not established.** `is_running()` is a real lock acquisition rather than a check for a
+leftover socket, which is what the server contract requires and rules out the obvious explanation.
+What is established is that nothing could say why: `start_daemon` discarded the daemon's standard
+error, so a failure of the thing being started reported only that it had not worked.
+
+That is the failure mode this project already named for a provider — swallowing diagnostics into a
+buffer nothing reads makes a misbehaving process silent — and it was in the CLI's own daemon client
+the whole time. The diagnostics are kept now and appear in both failure messages, so the next
+occurrence names something instead of being guessed at.
+
+The test is also no longer run where several repositories' suites share one operating-system user.
+The daemon's endpoint and lock are **per-user**, and root CI runs every child's suite in one job as
+one user; a per-user singleton is not safe to share. Root CI sets `NOSTDB_SHARED_RUNNER`, the child
+leaves the round trip off and says so, and `nostdb-cli`'s own CI — which has the runner to itself —
+still runs it.
+
+Recorded as an isolation change rather than a fix, because that is what it is. A test moved to where
+it can run is not a bug closed, and the next red run is the one that will say what the bug was.
+
 ### Deferred out of Stage 12 until authorized
 
 Creating `nostdb-distribution` and `homebrew-tap` is covered by the standing Stages 7 through 12
