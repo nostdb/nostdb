@@ -1333,7 +1333,7 @@ plugin, reads and checks the manifest, computes both digests, writes the files, 
 was approved. Nothing in it executes anything, and there is no path from the installing module to
 a process: no `Command`, no `spawn`, nothing that could reach one.
 
-### Recorded conflict: resolving a default branch
+### Resolved conflict: resolving a default branch
 
 Two published contracts disagree, and the disagreement is load-bearing rather than cosmetic.
 
@@ -1352,27 +1352,53 @@ request that reports a default branch, and `nostdb-provider-github` refuses a re
 with `PROVIDER_LOCATOR_INVALID`. So the manager is required to resolve something it has no way to
 ask about.
 
-Recorded rather than resolved, as the root contract requires, and the current valid behavior is
-unchanged: a source naming a ref installs end to end, and a source with no ref is refused by
-name with a message that says to name one. It is refused **before** a provider is demanded,
-because being told to install a provider first and then meeting this refusal anyway would waste
-somebody's afternoon.
+The conflict was recorded first and the behavior left unchanged, as the root contract requires,
+with three resolutions available:
 
-Two resolutions are available, and both belong to a contract owner rather than to this
-increment:
+1. **amend the provider protocol** so a default branch is askable — a `resolve` accepting
+   `?ref=HEAD`, which is a symbolic ref rather than a branch name and so does not violate the
+   letter of section 6;
+2. **add a protocol request** that reports the default branch, letting the manager build a locator
+   from the answer;
+3. **amend the manifest contract** to require a ref.
 
-1. **amend the provider protocol** so a default branch is askable — either a `resolve` that
-   accepts `?ref=HEAD`, which is a symbolic ref rather than a branch name and so does not
-   violate the letter of section 6, or a new request that reports the default branch and lets
-   the manager build a locator from the answer. This keeps the manifest contract's promise;
-2. **amend the manifest contract** to require a ref. This is the smaller change and the more
-   honest one for a *pinning* installer: section 4 exists so a plugin does not move underneath a
-   project, and asking for the ref up front makes what was installed visible in the command that
-   installed it.
+#### The resolution
 
-Option 2 is the narrower change and matches what the rest of this contract argues for. It is not
-taken here, because narrowing a published promise is not a decision an implementation increment
-gets to make.
+The user selected resolution 3. `docs/PLUGIN_MANIFEST.md` section 4 now requires a `ref`, and a
+source without one is refused with `PLUGIN_MANIFEST_INVALID`.
+
+It is the narrowest change and it agrees with what the rest of that contract argues for.
+Installation exists to pin a plugin to one commit, and asking for the ref in the command that
+installs makes what was installed visible in the command that installed it rather than recoverable
+only by reading the record afterwards.
+
+Applied changes:
+
+- section 4 requires the `ref`, and a new section 4.1 records why it is required rather than
+  defaulted, so the next reader finds the reason instead of the rule alone;
+- `fixtures/plugin/source/valid/repository_root` became
+  `fixtures/plugin/source/invalid/no_ref`. The published suite is what makes this binding on an
+  implementation, and a contract that changed while its fixtures still accepted the old form would
+  have two answers;
+- `PluginSource::parse` refuses a ref-less source, so `reference()` returns a `&str` rather than an
+  `Option` and `locator_for` became **infallible**. That is the shape of the resolution showing up
+  in the code: a source that could not supply a ref is one no locator could represent, and refusing
+  it at the grammar means nothing downstream carries the possibility;
+- the refusal happens while parsing rather than on the way to a provider, so somebody is not sent
+  to install a provider and then met with this anyway.
+
+#### Why this is a correction to version 1 rather than a version 2
+
+A version bump would imply that an implementation could conform to `manifest_version` 1 as first
+written. None could: section 4 required a manager to resolve something the provider protocol
+forbids any locator from expressing, and every implementation must obey both. That made version 1
+internally contradictory rather than merely permissive, and fixing a contradiction is a correction.
+
+Nothing has shipped, no plugin exists, and no installer has ever run, so no author is holding a
+manifest this invalidates. Recorded because it is the second time this project has decided whether
+completing a published contract needs a new version — the first was Stage 6 increment 3 — and the
+two were decided on the same test: whether a conforming implementation of the old text was
+possible.
 
 ### A separate contract for the record
 
@@ -1510,7 +1536,9 @@ that was right about everything except its own scope.
 
 ### Stage 11 increment 5 verification
 
-Passed on 2026-07-28 in `nostdb-spec` at `f0d16a2` and `nostdb-cli` at `e21b88c`.
+Passed on 2026-07-28 in `nostdb-spec` at `f0d16a2` and `nostdb-cli` at `e21b88c`, and again
+after the conflict resolution below at `nostdb-spec` `af6ef85` and `nostdb-cli`
+`a568cbb`.
 
 Rust command set clean in both children:
 
