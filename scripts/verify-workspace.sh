@@ -444,6 +444,11 @@ if [ -d nostdb-spec/fixtures ]; then
   # And the viewer exchange, whose payload rules only a decoder can reach: the specification
   # harness stops at the header, so this half of the published suite runs nowhere else.
   run_conformance_suite nostdb-cli view_exchange_conformance
+
+  # And the version report against the registry that declares the contracts. Section 25.3 makes it
+  # the surface every install route is verified at, so a report that had drifted from the registry
+  # would be the one thing every later gate trusted and none of them checked.
+  run_conformance_suite nostdb-cli version_conformance
 fi
 
 git diff --check

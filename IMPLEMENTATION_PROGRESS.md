@@ -55,7 +55,7 @@ requirements.
 | 9 | DONE | GitHub provider | Stage 7, plus connected `nostdb-provider-github` |
 | 10 | DONE | Skills and AI enrichment workflow | Stages 7 and 9, plus connected `skills` |
 | 11 | DONE | Plugin manager and reference viewer | Stage 7, plus connected `plugins` |
-| 12 | PENDING | npm, Homebrew, and GitHub distribution gates | Stages 8 through 11, plus connected `nostdb-distribution` and `homebrew-tap` |
+| 12 | IN_PROGRESS | npm, Homebrew, and GitHub distribution gates | Stages 8 through 11, plus connected `nostdb-distribution` and `homebrew-tap` |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -1476,7 +1476,93 @@ there, and it is only in this record because a push of mine is what surfaced it.
 - **a signature scheme**, which would let the MVP imply a guarantee it has not earned;
 - **non-GitHub plugin sources**, for the reason Stage 9 deferred non-GitHub providers.
 
-### Stage 11 increment 7 verification
+### Stage 12 scope
+
+The last Stage, and the one that makes every earlier one reachable by somebody who did not build it.
+
+| Increment | Content | Status |
+| --- | --- | --- |
+| 1 | the version report, completed | DONE |
+| 2 | connect `nostdb-distribution`; the npm launcher, platform resolution, and artifact checksums | PENDING |
+| 3 | connect `homebrew-tap`; the formula and its checksum verification | PENDING |
+| 4 | release assembly, published checksums, and the source-install route | PENDING |
+
+### Increment 1 first, because it is what every other increment is verified against
+
+`docs/PRD.md` section 25.3 requires release archives, npm wrappers, Homebrew formulae, and source
+builds to "report compatible `nostdb --version --json` data". That report is therefore the surface
+every install route is checked at, and it is incomplete.
+
+It states five keys. Section 25.4 names three the build does not report at all —
+`server_protocol_versions`, `provider_protocol_versions`, and `plugin_protocol_versions` — and six
+more contracts have been specified since that section was written and appear nowhere:
+`query_subset_version`, `result_version`, `catalog_version`, `manifest_version`,
+`plugin_install_version`, `change_set_version`, and `view_exchange_version`.
+
+This is not only a reporting gap. `skills/skills/nostdb/RESOLUTION.md` decides whether an Engine is
+compatible by asking the report for **the contract versions it needs**, and
+`scripts/resolve-engine.sh` looks the key up in the reply. A Skill asking for
+`provider_protocol_version` finds nothing and concludes a working Engine is incompatible. The
+mechanism Stage 10 built has been reading a report that could not answer it.
+
+### What the report says, and what it must not
+
+It reports every contract this build **implements**, taken from the constant each owning crate
+exports rather than from a list written out here — a hand-written list is the thing that was already
+six contracts behind.
+
+A `deferred` contract is deliberately absent. `credentials_version` has a reserved key and no
+authored contract, so nothing implements it, and a report claiming support for a contract nobody has
+written would be false in the one place a caller trusts to be exact.
+
+### The two defects increment 1 found
+
+**The report listed five contracts of thirteen.** Three are named outright in section 25.4 and were
+never reported: `server_protocol_versions`, `provider_protocol_versions`, and
+`plugin_protocol_versions`. Six more were specified after that section was written —
+`query_subset_version`, `result_version`, `catalog_version`, `manifest_version`,
+`plugin_install_version`, `change_set_version`, and `view_exchange_version` — and appeared nowhere.
+
+The list was hand-written, which is how it fell six contracts behind. It is now built from the
+constant each owning crate exports, and `tests/version_conformance.rs` checks it against the
+registry in both directions: every specified contract present with the versions it declares, nothing
+invented, no deferred contract claimed, and the human column naming the same contracts as the JSON.
+
+`query_subset_version` had no constant anywhere. The Engine implements a versioned subset and had
+never said which version, so the report had nothing to read; `nostdb-core` now states it, in the
+crate that owns it.
+
+**The Skill has never been able to read a real report.** `resolve-engine.sh` looked up the contract
+key, `nost_language_version`. The report answers with what a build *supports*, which is a list,
+keyed `nost_language_versions` — and the singular key is not a substring of the plural one, so the
+lookup failed and every real Engine was reported incompatible.
+
+Stage 10 built that resolution and recorded it as tested against fakes, with the argument that a fake
+answers a version report exactly as a real Engine would. It did not: **every fake emitted the
+singular key**, so the fakes agreed with the question and neither agreed with the Engine.
+
+That is the same failure the budget fixtures found in Stage 10, in the same repository, one increment
+over: a suite whose author also wrote the thing it tests agrees with the author's idea of the
+document. Recording it twice is the point — the first time it was called out as a lesson, and the
+lesson did not transfer to the suite next door.
+
+The script now takes the contract key and looks up that key plus an `s`, which is the vocabulary
+every document already uses. The fakes answer the real shape, and the suite checks a real report when
+one is on the path — the check that stops this returning. Proven against the built binary: before the
+fix a real Engine on the path was refused, and after it resolves.
+
+### Deferred out of Stage 12 until authorized
+
+Creating `nostdb-distribution` and `homebrew-tap` is covered by the standing Stages 7 through 12
+grant. **Publishing is not.** Nothing in that grant covers publishing an npm package, creating a
+GitHub release, or modifying a registry, and the root contract names each of those separately.
+
+So increments 2 through 4 can build and verify the machinery — platform resolution, checksum
+verification, archive assembly, the formula — against local artifacts, and cannot verify a real
+`npm install nostdb` or `brew install`. That boundary is named here rather than discovered at the
+point where a push would have been needed.
+
+## Stage 11 increment 7 verification
 
 Passed on 2026-07-28 in `nostdb-spec` at `bf6a3b9`, `nostdb-cli` at `c7a23a8`, and
 `plugins` at `8008a24`.
