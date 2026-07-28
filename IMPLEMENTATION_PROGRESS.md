@@ -2,8 +2,9 @@
 
 Last updated: 2026-07-28
 
-Current stage: Stage 11 is `IN_PROGRESS` at increment 4. A plugin source parses and a
-manifest validates, gated by the published fixtures. Increment 5 is the half that fetches.
+Current stage: every Stage is `DONE`. NostDB 0.1.0 is published: `npm install nostdb`,
+`brew install nostdb/tap/nostdb`, a GitHub release with checksums, and a source install from the
+`v0.1.0` tag all install the same Engine and report byte-identical version data.
 
 Nothing in Stage 10 has ever called a model, and that is the design rather than a gap: what
 a model returns cannot be pinned by a fixture, so everything testable is the surface around
@@ -55,7 +56,7 @@ requirements.
 | 9 | DONE | GitHub provider | Stage 7, plus connected `nostdb-provider-github` |
 | 10 | DONE | Skills and AI enrichment workflow | Stages 7 and 9, plus connected `skills` |
 | 11 | DONE | Plugin manager and reference viewer | Stage 7, plus connected `plugins` |
-| 12 | IN_PROGRESS | npm, Homebrew, and GitHub distribution gates | Stages 8 through 11, plus connected `nostdb-distribution` and `homebrew-tap` |
+| 12 | DONE | npm, Homebrew, and GitHub distribution gates | Stages 8 through 11, plus connected `nostdb-distribution` and `homebrew-tap` |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -1766,6 +1767,113 @@ expects, wrote `checksums.json` from what the assembly recorded, and ran the lau
 
 That is the whole chain except the two acts that need authorization, and it is what makes the claim
 "every install route reports compatible version data" a result rather than an intention for this route.
+
+## Stage 12 increment 5: published
+
+Authorized explicitly: `0.1.0`, npm and GitHub. Everything below was verified after publishing rather
+than asserted before it.
+
+### Only one machine can build one target, so a release needs a matrix
+
+`.github/workflows/release.yml` builds each target on the runner that can build it, checks out
+`nostdb-distribution`'s assembler rather than reimplementing one, and ends with a single
+`checksums.json` covering every target. Run by hand: cutting a release is a deliberate act somebody
+performs, and a workflow firing on a tag push would make it a side effect of pushing one.
+
+### The first run found that NostDB does not build for Windows
+
+Four targets built and both Windows ones failed. `nostdb-server` implements only the Unix domain
+socket, while `SERVER_PROTOCOL.md` section 2 specifies a named pipe for Windows — so **nothing in
+NostDB compiles for Windows**, and nothing had ever tried until a release matrix did.
+
+`fail-fast: false` is what made one run answer the question for both Windows targets instead of for
+whichever failed first.
+
+Windows was removed from the published targets, and recorded as intended-and-not-buildable with the
+reason. A Windows user is told that rather than being told their platform is unpublished, and is not
+offered the source-install command — which would fail for the same reason and waste a toolchain
+install. Windows returns when the daemon has its endpoint, which is `nostdb-server`'s work.
+
+### The second run shipped two empty archives, and reported success
+
+Both Linux archives were 20 bytes: an empty gzip stream. `--uid`/`--gid` are BSD tar's flags and not
+GNU tar's, so the same command worked on macOS and failed on Linux — and because the assembler used a
+**pipeline**, `sh` reported `gzip`'s status, and gzip compressed nothing perfectly well. The assembler
+then recorded a digest that faithfully described an empty archive.
+
+The flag was the instance. The class of defect was an assembler that never opened its own archive, and
+that is what got fixed: two steps with each status checked, then the archive **unpacked** and its
+bytes compared against the binary it was given, plus the executable bit.
+
+Getting that check right took three attempts, which is worth recording because each failure was the
+same kind of mistake:
+
+| Attempt | Why it was wrong |
+| --- | --- |
+| a minimum archive size | a guess about how well a binary compresses; refused a legitimately small test stub |
+| a parsed size column from `tar -tv` | column position differs between BSD and GNU tar — the same portability trap that caused the bug |
+| unpack and compare digests | compares the thing itself, identical everywhere, and proves the archive round-trips |
+
+### The launcher advertised a command that did not exist
+
+Its refusal said "run `npm rebuild nostdb`", and there was no install script — so the package would
+have installed and then refused, pointing at a command that did nothing. `scripts/install.mjs` now
+fetches the archive, verifies its length and digest **before writing anything**, unpacks it, and
+verifies the unpacked binary separately because unpacking is a step between the two.
+
+A digest that does not match fails the install. A package that installed an unverified binary is worse
+than one that failed: the failure is visible and recoverable, and the binary is not.
+
+An unpublished platform exits **successfully** with a warning, so `npm install` does not break for a
+project that merely has this as a development dependency on one. The launcher refuses by name when it
+is actually run, which is the moment somebody wanted it.
+
+### What every route now reports
+
+| Route | Verified |
+| --- | --- |
+| `npm install nostdb` | fetches, verifies, runs; 13 contracts |
+| `npm install --global nostdb` | installs and runs |
+| `npx --yes --package=nostdb@0.1.0 nostdb help` | the pinned form section 25.1 publishes |
+| `brew install nostdb/tap/nostdb` | installs, and `brew test` passes |
+| the GitHub release archive | every digest matches the published `checksums.json`; the binary runs |
+| `cargo install --git … --tag v0.1.0 --locked` | builds and runs |
+
+All three installed routes report **byte-identical** `--version --json`, which is what section 25.3
+requires and what nothing had ever checked.
+
+Tampering was checked at the end of the chain that matters: one byte appended to the installed
+artifact is refused as truncated, and re-running the install repairs it.
+
+### Recorded conflict: the source route's published spelling is wrong
+
+Section 25.3 publishes:
+
+```bash
+cargo install --git https://github.com/<organization>/nostdb-cli --tag <version> --locked nostdb
+```
+
+That trailing word is a **package** name, not a binary name, and the package was `nostdb-cli` — so the
+published command fails with "could not find `nostdb`". Verified against the `v0.1.0` tag, after the
+release.
+
+Omitting the trailing name works today, and the package is now named `nostdb` so the published command
+is correct **from the next tag**. `v0.1.0` keeps the defect, and deliberately: the npm package
+published at 0.1.0 records digests of the exact archives attached to that release, so re-cutting it
+would invalidate a package already on the registry. A wrong spelling in one release's documentation is
+a smaller harm than a published package whose checksums no longer describe anything.
+
+`docs/PRD.md` is not edited. It is the approved contract, and Stage 0 verification diffs it against an
+approved source.
+
+### What publishing did not prove
+
+- **Windows.** Not built, not published, and the reason is a named gap in the daemon;
+- **the release workflow's own reproducibility across runners.** Each target's archive is
+  reproducible on the runner that built it, which is what was checked. Whether two different runners
+  of the same platform produce identical bytes is not something one release can establish;
+- **`brew audit`.** `brew style` accepted the formula; the stricter audit needs the tap to be
+  installed and was not run.
 
 ### Deferred out of Stage 12 until authorized
 

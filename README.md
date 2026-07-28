@@ -44,11 +44,22 @@ that resolves this platform to a released artifact, verifies it against checksum
 package itself ships, and executes it. `homebrew-tap` holds the formula, which
 installs the same native binary and verifies the same release checksum.
 
-Nothing is published. Both refuse by name and say what is missing rather than
-fetching something unverified, which is the correct state for a release that does not
-exist yet.
+**0.1.0 is published.** Every route installs the same Engine and reports byte-identical
+version data:
 
-Every child the topology names is now connected and pinned.
+```bash
+npm install --save-dev nostdb
+npm install --global nostdb
+npx --yes --package=nostdb@0.1.0 nostdb help
+brew install nostdb/tap/nostdb
+cargo install --git https://github.com/nostdb/nostdb-cli --tag v0.1.0 --locked
+```
+
+macOS and Linux, on arm64 and x64. Windows is in the product contract and does not build
+yet: the daemon's endpoint contract specifies a named pipe for it and `nostdb-server`
+implements only the Unix domain socket.
+
+Every child the topology names is connected and pinned.
 
 ## Start here
 
