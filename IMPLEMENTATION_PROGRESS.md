@@ -1440,6 +1440,23 @@ test, and it is recorded as one.
 That rule is worth a decision rather than a workaround, and it is put to the user below rather than
 narrowed here.
 
+### One repair root CI found, in code this increment did not touch
+
+The first root run after Stage 11 closed went red on `nostdb-core`, in a Stage 9 test nothing here
+changed: `a_provider_that_exits_instead_of_answering_says_so_rather_than_hanging`.
+
+Whether a vanished provider surfaces as a failed write or as end-of-file on the read is a race the
+operating system decides. If the child is already gone the write fails with a broken pipe; if it is
+still alive the write succeeds and the read finds nothing. The test accepted only the second, so it
+passed on every machine slow enough to lose the race — until a CI runner won it.
+
+Fixed in the test rather than the transport, because both messages are correct and the property the
+test's own name asks for is that the conversation *ends with a reason* rather than blocking. Pinning
+which of the two reasons appeared was pinning the scheduler.
+
+Recorded here rather than left to look like part of increment 7: it is a latent flake that was always
+there, and it is only in this record because a push of mine is what surfaced it.
+
 ### Deferred out of Stage 11, and now the record of what Stage 11 did not do
 
 - **WebGPU rendering and the three performance tiers.** Real requirements, and not Stage 11 ones;
