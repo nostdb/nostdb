@@ -2,10 +2,10 @@
 
 Last updated: 2026-07-28
 
-Current stage: Stage 9 is `IN_PROGRESS`, with increments 1 through 7 done. The provider is a
-working executable: it speaks the protocol on standard input and output and reaches GitHub.
-Increment 8 is `link refresh` and remote federation, which are Engine-side work on top of a
-provider that already answers.
+Current stage: Stage 9 is `IN_PROGRESS`, with increments 1 through 8 done. The provider is a
+working executable, and the Engine can start one and hold a conversation with it across a
+pipe. Increment 9 is `link refresh` and remote federation — the first work that is about
+what the Engine *does* with a provider rather than how it reaches one.
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification, Engine, and command-surface repositories `nostdb-spec`,
@@ -1217,7 +1217,8 @@ product has, and the first that is not a local filesystem.
 | 5 | the request loop | DONE |
 | 6 | the per-snapshot tree cache | DONE |
 | 7 | an HTTP client, and the binary that serves the protocol | DONE |
-| 8 | `link refresh`, and read-only federation over a remote `.nostdb` | PENDING |
+| 8 | running a provider as a child process | DONE |
+| 9 | `link refresh`, and read-only federation over a remote `.nostdb` | PENDING |
 
 The contract comes first for the same reason it did in Stages 7 and 8: the provider is a
 separate executable, so the protocol between it and the Engine is the whole interface, and
@@ -1467,6 +1468,35 @@ The binary resolves its credential from the environment — first among the reso
 Driven end to end, the executable answers a handshake and refuses an unknown request, which
 is the first time both halves of Stage 9 have been observable from outside a test.
 
+### Increment 8: reaching a real provider
+
+The Engine could speak the protocol and had nothing to speak it to. This is the transport
+that reaches one: a child process, its standard input, and its standard output.
+
+**The framing is written out by hand, and that is the point.** A reply is a line; the
+content after a `read` is a fixed run of bytes on the same stream. A buffered line reader
+consumes part of that run looking for a newline, and the bytes it swallows are gone. So one
+reader owns the stream for its whole life and both the line read and the exact-length read
+go through it. A test sends content containing newlines — the ordinary case, and exactly
+what a line-oriented reader would truncate.
+
+A length mismatch is fatal rather than recoverable. Once the reader has consumed the wrong
+number of bytes it cannot know where the next reply begins, and guessing would turn a
+provider's bug into the Engine's corrupted data.
+
+Two smaller decisions with the same shape:
+
+- **the argument vector is passed directly, never through a shell.** A provider path comes
+  from configuration, and configuration is read from a repository somebody else may have
+  written;
+- **standard error is inherited rather than captured.** Swallowing a provider's diagnostics
+  into a buffer nothing reads would make a misbehaving provider silent, which is worse than
+  noisy.
+
+These tests spawn **real processes**. Every other test in Stage 9 uses a fake, deliberately;
+this one cannot, because what is under test is the framing across a pipe and a fake transport
+cannot get that wrong in the same way.
+
 ### Where Stage 9 stands
 
 The provider works. The protocol is specified and gated by fixtures, the Engine speaks it,
@@ -1474,8 +1504,11 @@ the provider serves it on standard input and output, locators canonicalize, and 
 API layer resolves, enumerates, reads, and caches — 47 tests, **none of which touches a
 network**.
 
-What remains is Engine-side: `link refresh` recording a newer commit, and read-only
-federation over a remote `.nostdb`. Both sit on top of a provider that already answers.
+What remains is Engine-side and is about what the Engine *does* with a provider rather than
+how it reaches one: `link refresh` recording a newer commit, and read-only federation over a
+remote `.nostdb`. Both need somewhere to keep a resolved commit, and section 16.2 says where
+— operational snapshot metadata, not a target identity — which means another amendment to
+the settings contract before either can be built.
 
 What also remains, and is not an increment, is the **live conformance run against a real
 repository with a real credential**. The scope has named it unauthorized since it was
