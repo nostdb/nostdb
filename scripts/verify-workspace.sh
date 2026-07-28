@@ -277,7 +277,15 @@ if [ -f "$spec_registry" ]; then
     # the registry assigns to that owner must appear in it. The reverse is deliberately not
     # required: an owner legitimately names a code it forwards from the Engine rather than
     # raises itself.
-    if [ ! -d "$owner/src" ]; then
+    # Where an owner's implementation lives. Every Rust child keeps it under `src`; `plugins`
+    # keeps reference plugins under `reference`, and its own verifier forbids a `src` — so
+    # looking only there would have reported an implemented owner as awaiting one.
+    owner_source="$owner/src"
+    if [ "$owner" = "plugins" ]; then
+      owner_source="$owner/reference"
+    fi
+
+    if [ ! -d "$owner_source" ]; then
       echo "diagnostic ownership: $owner awaits an implementation for" $owned
       continue
     fi
@@ -289,7 +297,7 @@ if [ -f "$spec_registry" ]; then
     # is worse than one that claims less.
     undeclared=""
     for code in $owned; do
-      if ! grep -rq "\"$code\"" "$owner/src"; then
+      if ! grep -rq "\"$code\"" "$owner_source"; then
         undeclared="$undeclared $code"
       fi
     done
@@ -316,7 +324,6 @@ ANALYSIS_PARTIAL
 AI_BUDGET_EXCEEDED
 PROVIDER_AUTH_REQUIRED
 PROVIDER_PERMISSION_DENIED
-VIEW_CAPACITY_EXCEEDED
 "
 
   required_codes=$(
@@ -433,6 +440,10 @@ if [ -d nostdb-spec/fixtures ]; then
   # And the protocol, which is a third contract with a third version: what an author writes, what
   # the manager records, and what the two processes say to each other all move separately.
   run_conformance_suite nostdb-cli plugin_protocol_conformance
+
+  # And the viewer exchange, whose payload rules only a decoder can reach: the specification
+  # harness stops at the header, so this half of the published suite runs nowhere else.
+  run_conformance_suite nostdb-cli view_exchange_conformance
 fi
 
 git diff --check

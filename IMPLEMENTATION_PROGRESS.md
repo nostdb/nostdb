@@ -54,7 +54,7 @@ requirements.
 | 8 | DONE | Per-user local daemon | Stage 7, plus connected `nostdb-server` |
 | 9 | DONE | GitHub provider | Stage 7, plus connected `nostdb-provider-github` |
 | 10 | DONE | Skills and AI enrichment workflow | Stages 7 and 9, plus connected `skills` |
-| 11 | IN_PROGRESS | Plugin manager and WebGPU reference viewer | Stage 7, plus connected `plugins` |
+| 11 | DONE | Plugin manager and reference viewer | Stage 7, plus connected `plugins` |
 | 12 | PENDING | npm, Homebrew, and GitHub distribution gates | Stages 8 through 11, plus connected `nostdb-distribution` and `homebrew-tap` |
 
 A Stage whose dependency names a child repository cannot start until that
@@ -1187,7 +1187,7 @@ runs alongside the Engine.
 | 4 | reading a plugin source and validating a manifest | DONE |
 | 5 | `nostdb plugin add`: fetching, digests, consent, and the install record | DONE |
 | 6 | out-of-process execution and the Engine-owned exchange stream | DONE |
-| 7 | the viewer's exchange format, and a reference viewer that consumes it | PENDING |
+| 7 | the viewer's exchange format, and a reference viewer that consumes it | DONE |
 
 ### Increment 2: a manifest is a request, not a grant
 
@@ -1326,6 +1326,167 @@ In `nostdb-cli`:
 - `plugin list` and `plugin remove`, refused by name rather than falling through to "unknown",
   which is the treatment `link refresh` established.
 
+### The format's shape is fixed by what a renderer does, not by taste
+
+`docs/PRD.md` section 24.3 requires instanced node and edge rendering, incremental decoding, and no
+allocation of the full graph as DOM elements. Those decide the format:
+
+- **columns, not records.** A renderer uploads a buffer per attribute. A record layout would make it
+  walk the whole graph to gather one attribute and copy it into the buffer it wanted anyway;
+- **edges name endpoints by index.** An edge naming opaque identifiers would make a renderer build a
+  hash map over every node before drawing one line — the exact work a million-edge graph cannot
+  afford. The identifier is still carried, in its own section, because source navigation needs it;
+  what changed is that drawing never resolves one;
+- **sections are independently locatable**, so a viewer may draw geometry before reading evidence it
+  does not need yet.
+
+The counts sit in the header rather than in the sections because a viewer allocates before it
+decodes. Reading a count out of a section would mean two passes or a growing allocation.
+
+### Nothing in the format can express a relationship the graph does not have
+
+Section 24.2 requires disconnected components to stay disconnected. A format with a parent or root
+field a layout could hang everything from would make violating that the easy path, so there is no
+such field — and the reference viewer finds components from the edges and lays each out separately.
+
+The same reasoning put the **broken-link marker** in the sources table rather than leaving an
+unavailable link out of it. Omitting it would report a link as never having been declared, and the
+product contract requires an unavailable source to stay declared.
+
+### `VIEW_CAPACITY_EXCEEDED` is not a refusal of the format
+
+`VIEW_EXCHANGE_INVALID` means the bytes are not a readable exchange. `VIEW_CAPACITY_EXCEEDED` means
+the bytes were fine and this viewer on this machine cannot draw them.
+
+The same file may exceed one machine's capacity and not another's, so the second is a fact about a
+renderer and never about the file. They send a user to different places: one to whoever produced the
+file, one to a smaller graph or a better machine. `VIEW_CAPACITY_EXCEEDED` has been on the root's
+awaiting list since Stage 1 and is registered now, because there is finally a renderer that can
+reach its own limit.
+
+### The check that caught the wrong owner
+
+Both new codes were registered against `nostdb-cli`, and the workspace ownership check refused the
+pin: the command surface never declares either. It was right, and the fix was not to declare them.
+
+A container is *written* by the CLI and *read* by a viewer, and both codes are raised by a reader. So
+the owner is `plugins`, which is where the reference viewer lives. Making that pass needed one more
+correction: the check looked for an owner's implementation under `src`, and `plugins` keeps reference
+plugins under `reference` — its own verifier forbids a `src`. So an owner that had implemented every
+code assigned to it would have been reported as awaiting an implementation.
+
+That is the fourth time this check has earned its place, and the first time it was right about
+something other than drift.
+
+### Two suites, split where a decoder is needed
+
+The specification harness parses the header and the section table and stops. Four rules — a string
+index out of range, an endpoint past the node count, a source zero that is not the root, evidence out
+of order — are payload rules, and refusing them needs a decoder.
+
+So `nostdb-cli` carries the decoder and its suite runs all twenty-one containers, and the split is
+asserted rather than implied: a test names those four and fails if any lacks a fixture. Without that,
+the half of the published suite only an implementation can run could have quietly stopped running.
+
+The CLI's suite also decodes a container this build **wrote**, through the same reader. A writer whose
+own reader refuses its output would be two implementations of one contract, and this file is the one a
+browser fetches.
+
+### The fixtures are generated, and the generator is the readable form
+
+Twenty-one binary containers, written by `fixtures/view-exchange/generate.mjs`. A hand-edited byte
+array is one nobody can extend and one people copy without understanding, so the construction of every
+fixture is a script a reader can follow.
+
+`scripts/verify-repository.sh` re-runs it and fails if any fixture changes. That gates two things at
+once: a fixture edited by hand, and a generator that drifted from its own output — a document
+describing a file it no longer writes.
+
+### The reference viewer, and what it does not claim
+
+`plugins/reference/view-webgpu/bin/nostdb-view` speaks the protocol, verifies the artifact's digest
+before interpreting it, decodes every section, and writes `view.html` and `view.data.bin`.
+
+It draws with **Canvas 2D**. It does not use WebGPU and implements no instanced rendering, compute
+layout, level of detail, clustering, edge aggregation, or label culling, and claims no performance
+tier. Stage 11's own deferral said this increment owes a reference that proves the format and not the
+tiers, and the repository verifier now requires the README to say both things — the positive form of
+the check, which is the shape this project settled on after four attempts at the negative one.
+
+Layout is a deterministic ring per component rather than a force simulation. A simulation would look
+better and would draw the same input differently every run, which is the wrong trade for a reference.
+
+Data is embedded in the page rather than fetched from the sibling file, because a page opened with
+`file://` cannot fetch its sibling. `view.data.bin` is still written, because the manager removes its
+temporary artifact and a page that wanted to re-read the data would otherwise find nothing.
+
+### What is unverified, and the rule that makes it so
+
+**No test in this workspace has ever executed the reference viewer.** `plugins/AGENTS.md` says
+"Never execute a plugin's code here", and that rule is not relaxed for the one plugin the repository
+happens to own: a rule that holds except for the code you wrote yourself is not a rule.
+
+So its verifier checks that the entrypoint is committed executable, names an interpreter, and parses.
+Its decoder is otherwise unverified by any suite.
+
+What stands in for it is that the format has **two independent decoders that are** tested — one in the
+specification harness and one in `nostdb-cli` — both reading the same published fixtures. The viewer's
+decoder implements the same twenty-odd rules; whether it implements them correctly is not something
+this workspace currently proves.
+
+I ran the handshake by hand once to confirm the executable starts and answers. That is a check, not a
+test, and it is recorded as one.
+
+That rule is worth a decision rather than a workaround, and it is put to the user below rather than
+narrowed here.
+
+### Deferred out of Stage 11, and now the record of what Stage 11 did not do
+
+- **WebGPU rendering and the three performance tiers.** Real requirements, and not Stage 11 ones;
+- **the benchmark report.** Section 24.3 requires one identifying browser, GPU, CPU, memory, dataset,
+  and whether WebGPU or fallback rendering was used, measured on a published reference machine. No
+  such machine exists. A report naming this one would be a number nobody can reproduce, and an
+  unreproducible measurement is worse than none because the first gets mistaken for a guarantee;
+- **a signature scheme**, which would let the MVP imply a guarantee it has not earned;
+- **non-GitHub plugin sources**, for the reason Stage 9 deferred non-GitHub providers.
+
+### Stage 11 increment 7 verification
+
+Passed on 2026-07-28 in `nostdb-spec` at `bf6a3b9`, `nostdb-cli` at `c7a23a8`, and
+`plugins` at `8008a24`.
+
+Rust command set clean in both Rust children:
+
+- `cargo fmt --check`
+- `cargo check --all-targets --all-features`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test --all-targets --all-features` — 89 unit and 133 integration tests in the command
+  surface; 14 test binaries in the specification harness
+
+Fixtures published and gated:
+
+| Suite | Fixtures | What it establishes |
+| --- | --- | --- |
+| `view-exchange/container/valid` | 4 | decodes, with the declared counts, covering an empty graph, evidence, and two disconnected components |
+| `view-exchange/container/invalid` | 17 | refused, twelve from the header and five needing a decoder |
+
+Repository and workspace:
+
+- `./scripts/verify-repository.sh` in `nostdb-spec`, `nostdb-cli`, and `plugins`
+- `./scripts/verify-workspace.sh` in the root, which now runs four plugin and viewer conformance
+  suites and reports the diagnostic ownership of all four owners
+- the fixture generator re-run and confirmed idempotent
+- `git diff --check`
+
+Three tripwires fired as designed:
+
+| Tripwire | What it caught |
+| --- | --- |
+| `the_specified_contracts_are_exactly_those_that_have_been_authored` | the twelfth specified contract |
+| the diagnostic ownership check | two codes assigned to a repository that never raises them |
+| the conformance runner's confirmation line | a suite printing `decoded` rather than `verified`, which read as a suite that had not run |
+
+
 ## Stage 11 increment 6 scope
 
 The first point in this project where code somebody else wrote actually runs. Increment 5 recorded
@@ -1366,6 +1527,51 @@ In `nostdb-cli`:
 - the viewer's exchange format, `view.html`, `view.data.bin`, and the rendering tiers, which are
   increment 7 and are what `docs/PRD.md` section 24 specifies;
 - a sandbox. The MVP does not implement one and must not describe the process boundary as one.
+
+## Stage 11 increment 7 scope
+
+The last increment in Stage 11, and the one with a requirement the others did not have: a shape
+that has to be efficient rather than merely correct.
+
+In `nostdb-spec`:
+
+- author `view_exchange_version` in `docs/VIEW_EXCHANGE.md`: the media type a viewer receives, and
+  the binary layout of `view.data.bin`. A new contract key rather than part of the plugin protocol,
+  because section 6.1 of that protocol says outright that adding a media type is not a change to
+  it — the payload and the handoff move separately, and this is the first payload;
+- **columnar and index-addressed**, because `docs/PRD.md` section 24.3 requires instanced node and
+  edge rendering and incremental decoding. An edge that named its endpoints by opaque identifier
+  would make a renderer build a hash map before it could draw anything;
+- everything section 24.2 requires be present: scoped source identity per item, link statuses and
+  broken-link markers, evidence metadata for source navigation, and disconnected components with
+  no synthetic relationship invented to connect them;
+- register `VIEW_CAPACITY_EXCEEDED`, which section 24.3 requires a viewer to return rather than
+  crash, and which the root has carried on its awaiting list since Stage 1;
+- fixtures for the container and for the rejections.
+
+In `nostdb-cli`:
+
+- `nostdb view [PATH] [--standalone]`, which is the first action that needs a plugin the user did
+  not name. That is the full `docs/PRD.md` section 23.4 flow, and the point at which
+  `PLUGIN_REQUIRED` carries a recommended source rather than only a name;
+- write the exchange in the published format and hand it over as the viewer media type.
+
+In `plugins`:
+
+- a reference viewer that decodes every section and renders the graph, proving the format carries
+  what a viewer needs.
+
+### Deferred out of increment 7, and named rather than implied
+
+- **the WebGPU rendering itself, and the three performance tiers.** Stage 11's own deferral already
+  says so: a reference that proves the exchange format is what this increment owes, and the tiers
+  are a real requirement that is not a Stage 11 one. The reference viewer therefore implements the
+  Canvas path section 24.3 requires as a fallback, and claims nothing about WebGPU;
+- **the benchmark report.** Section 24.3 requires one identifying browser, GPU, CPU, memory,
+  dataset, and whether WebGPU or fallback rendering was used, measured on a published reference
+  machine. No such machine exists, and a report naming this one would be a number nobody can
+  reproduce. Publishing an unreproducible measurement is worse than publishing none, because the
+  first is mistaken for a guarantee.
 
 ### The order is the safety property
 
