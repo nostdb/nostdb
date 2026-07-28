@@ -2,9 +2,8 @@
 
 Last updated: 2026-07-28
 
-Current stage: Stage 11 is `IN_PROGRESS` at increment 3. `manifest_version` is specified,
-`plugins` is connected with a reference manifest and authoring guidance, and the seventh and
-last child repository is pinned.
+Current stage: Stage 11 is `IN_PROGRESS` at increment 4. A plugin source parses and a
+manifest validates, gated by the published fixtures. Increment 5 is the half that fetches.
 
 Nothing in Stage 10 has ever called a model, and that is the design rather than a gap: what
 a model returns cannot be pinned by a fixture, so everything testable is the surface around
@@ -1178,9 +1177,10 @@ runs alongside the Engine.
 | 1 | this scope | DONE |
 | 2 | the `manifest_version` contract and the GitHub plugin source grammar, with fixtures | DONE |
 | 3 | connect `plugins`; a reference manifest and the authoring guidance | DONE |
-| 4 | `nostdb plugin add`: resolution, pinning, digests, and consent | PENDING |
-| 5 | out-of-process execution and the Engine-owned exchange stream | PENDING |
-| 6 | the viewer's exchange format, and a reference viewer that consumes it | PENDING |
+| 4 | reading a plugin source and validating a manifest | DONE |
+| 5 | `nostdb plugin add`: fetching, digests, consent, and the install record | PENDING |
+| 6 | out-of-process execution and the Engine-owned exchange stream | PENDING |
+| 7 | the viewer's exchange format, and a reference viewer that consumes it | PENDING |
 
 ### Increment 2: a manifest is a request, not a grant
 
@@ -1244,6 +1244,32 @@ had to drop the disclaimer first — which is the thing being checked.
 
 A positive check is not always available. Where it is, it is the better one, because it fails
 when the thing you want is absent rather than when a string you fear is present.
+
+### Increment 4: deciding acceptability, with no way to run anything
+
+The half of `plugin add` that decides whether a plugin is acceptable. Nothing in it fetches,
+writes, or executes.
+
+That is the contract's separation rather than a convenience. Installation must not execute
+plugin code, and the surest way to hold that is for the code deciding acceptability to have
+**no way** to run one — a rule enforced by what a module can reach is one that does not
+depend on anybody remembering it.
+
+Every problem is reported rather than the first, so an author fixes a manifest in one pass
+rather than one failed install per mistake. An unsupported version is returned alone, because
+naming a malformed field after an unreadable version sends somebody looking for one that is
+not there.
+
+A source with no ref is **not** resolved here. The manager resolves the default branch once
+and records the commit, so a user pins what they installed and moving a branch does not move
+them. That is a decision with a cost — a fix reaches a user only when they ask — and the
+authoring guidance says so rather than leaving an author to discover it.
+
+**Scope split.** Increment 4 was scoped as all of `plugin add`. Reading is now increment 4
+and fetching is increment 5, because the two have different testability: reading is gated by
+twenty-two published fixtures with no network at all, and fetching needs the same recorded-
+response treatment the provider got. Grouping them would have meant reporting neither until
+both were done.
 
 ### The sentence this Stage is organized around
 
@@ -2435,7 +2461,7 @@ the only rule that cannot silently weaken a declaration the author wrote.
 Increment 4 is larger than the three before it put together. It is being taken in parts,
 and this records what is done, what is not, and why the split falls where it does.
 
-Done, at `nostdb-spec` `be857c4`, `nostdb-core` `9d9657e`, and `nostdb-cli` `b08e6f8`:
+Done, at `nostdb-spec` `be857c4`, `nostdb-core` `9d9657e`, and `nostdb-cli` `6caa2a2`:
 link resolution and recursive federation in Core, federated queries, `link list`, `link
 check`, `sync`, and `link add` and `link remove` through the multi-file journal, and the source scanner with
 its hand-written Git-ignore matcher, `plan`, the Rust structural analyzer, `build`, and `apply`.

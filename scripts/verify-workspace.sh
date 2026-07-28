@@ -401,6 +401,10 @@ if [ -d nostdb-spec/fixtures ]; then
   # set a gate: a suite only the child repository runs is one a workspace-level change can
   # break without anything noticing.
   run_conformance_suite nostdb-provider-github locator_conformance
+
+  # The plugin manifest is validated where the manager lives, so the fixtures are gated
+  # there. Running them here is what makes the published set a gate rather than a document.
+  run_conformance_suite nostdb-cli plugin_conformance
 fi
 
 git diff --check
