@@ -1485,7 +1485,7 @@ The last Stage, and the one that makes every earlier one reachable by somebody w
 | 1 | the version report, completed | DONE |
 | 2 | connect `nostdb-distribution`; the npm launcher, platform resolution, and artifact checksums | DONE |
 | 3 | connect `homebrew-tap`; the formula and its checksum verification | DONE |
-| 4 | release assembly, published checksums, and the source-install route | PENDING |
+| 4 | release assembly, published checksums, and the source-install route | DONE |
 
 ### Increment 1 first, because it is what every other increment is verified against
 
@@ -1712,6 +1712,60 @@ The temporary tap was removed afterwards and Homebrew's state restored.
 
 Recorded because the verifier now prints those commands: a check it cannot run itself is one a reader
 has to be told how to run, or it is a check nobody runs.
+
+## Stage 12 increment 4: assembling a release without publishing one
+
+The packaging half. It takes a binary somebody else built, attests it, packages it, and records the
+digests the launcher and the formula verify. It builds nothing and publishes nothing.
+
+### Two digests per target, because they answer at different moments
+
+The archive digest is what a formula and a release page verify. The binary digest is what the launcher
+verifies **after unpacking**, when the archive is gone and the file on disk is what will run. Recording
+only the first would leave the thing that actually executes unverified from the moment it was extracted.
+
+Both are written by the same run that wrote the archive. A digest computed separately is a digest of
+something that might not be the archive.
+
+### Attestation, and the honest limit of it
+
+A native binary is run and its `--version --json` read before it is packaged: the product, the version,
+and at least five contracts. An assembler that packaged whatever it was pointed at would publish an
+archive named for NostDB containing something else, with a digest faithfully describing the wrong file.
+
+A cross-target assembly cannot run the binary, so it records `attested: false` rather than passing the
+check over in silence — a cross-assembled archive carries one fewer check than a native one and whoever
+reads the release should know which they have.
+
+What attestation verifies is the **report**, not the implementation. A stub that reports correctly is
+indistinguishable from the Engine by this check. That is written into the suite next to the stub that
+proves it, because a check whose limit is not stated gets read as stronger than it is.
+
+### The reproducibility check found a defect on its first run
+
+Two assemblies of the same binary produced different archive digests. Two things were leaking: the
+staged copy's modification time, which `tar` records, and gzip's own embedded timestamp. The
+`GZIP=-n` environment variable that used to suppress the second is deprecated and ignored by newer
+gzip, so the flag is passed to the program instead.
+
+Without that, a digest says two identical releases are different releases — which is the one thing a
+release digest exists not to say.
+
+### Verified end to end, short of publishing
+
+Assembled a real archive from the release build of `nostdb-cli`, installed it the way the launcher
+expects, wrote `checksums.json` from what the assembly recorded, and ran the launcher against it:
+
+| What | Result |
+| --- | --- |
+| `--version --json` through the launcher | byte-identical to the native binary's |
+| `nostdb init` through the launcher | configured a project, no daemon involved |
+| a failing command's exit code | 9 through the launcher, 9 native — not normalized |
+| one byte appended to the artifact | `DISTRIBUTION_ARTIFACT_TRUNCATED`, refused |
+| the same binary assembled three times | one digest, three times |
+
+That is the whole chain except the two acts that need authorization, and it is what makes the claim
+"every install route reports compatible version data" a result rather than an intention for this route.
 
 ### Deferred out of Stage 12 until authorized
 
