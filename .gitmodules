@@ -10,3 +10,6 @@
 [submodule "nostdb-server"]
 	path = nostdb-server
 	url = https://github.com/nostdb/nostdb-server.git
+[submodule "nostdb-provider-github"]
+	path = nostdb-provider-github
+	url = https://github.com/nostdb/nostdb-provider-github.git

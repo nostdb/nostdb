@@ -2,9 +2,9 @@
 
 Last updated: 2026-07-28
 
-Current stage: Stage 9 is `IN_PROGRESS` at increment 1, which authored the provider protocol
-contract and needed no child repository. Increment 2 connects `nostdb-provider-github` and
-waits on that repository being authorized, created, and pinned.
+Current stage: Stage 9 is `IN_PROGRESS` at increment 2. The provider protocol contract is
+specified and `nostdb-provider-github` is created, connected, and pinned as scaffolding.
+What remains in the increment is the Core-side out-of-process client.
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification, Engine, and command-surface repositories `nostdb-spec`,
@@ -1166,10 +1166,43 @@ Increment 1 is done and needed no child repository: a contract is specification 
 protocol first is the same rule Stages 7 and 8 followed, and here it also means the
 repository is authorized against a written interface rather than against an intention.
 
-Increment 2 is where `nostdb-provider-github` is created, and it waits. The Stages 7 through
-12 grant covers creating it, and Stage 8 re-confirmed that grant for `nostdb-server` before
-creating it; this follows that precedent rather than reading the standing grant as
-sufficient on its own.
+### Authorized scope
+
+Creating `nostdb-provider-github`, connecting it, and pushing was covered by the Stages 7
+through 12 grant. Confirmation was asked for once and given, together with a direction to
+rely on the standing grant for the remaining children rather than re-asking per repository.
+That direction is recorded here so Stages 10 through 12 do not repeat the question.
+
+Performed:
+
+- created `https://github.com/nostdb/nostdb-provider-github` as a public repository;
+- pushed its initial commit to `main`;
+- pinned it as a root submodule at `ec0ba39`.
+
+The crate is scaffolding: no request is served, and the binary exits non-zero rather than
+answering a handshake it cannot follow through on. A caller that got a handshake would go on
+to send a `resolve` this build cannot serve.
+
+Apache-2.0 rather than SSPL, which the root licensing policy puts the provider tier under
+deliberately: a provider is the component a third party is most likely to write, and
+copyleft on the protocol side would discourage exactly the implementations the product
+wants to exist.
+
+### Two boundaries the verifier holds before there is code to break them
+
+- **a dependency on `nostdb-core` is rejected outright, not pinned.** Every sibling
+  repository has a rule requiring the Engine dependency to name an exact commit; this one
+  has a prohibition instead, and the verifier says why in place of the missing pin rule — a
+  pinning rule beside a prohibition reads as permission to add the dependency as long as the
+  pin is right;
+- **a token literal in `src` or `tests` fails the build.** This is the repository that holds
+  a credential, so it is where an accidental one is most likely and most costly.
+
+Connecting it also tripped a check Stage 8 built: the workspace verifier compares each
+diagnostic code's registered owner against the source that declares it, and found seven
+assigned to this repository that the crate never named. They are declared now rather than
+deferred, because owning them is a fact about the contract rather than about how much of it
+is built.
 
 Stage 9 builds the out-of-process GitHub provider: the second source of graph data the
 product has, and the first that is not a local filesystem.
@@ -1177,7 +1210,7 @@ product has, and the first that is not a local filesystem.
 | Increment | Content | Status |
 | --- | --- | --- |
 | 1 | the `provider_protocol_version` contract and the `github://` locator grammar, with fixtures | DONE |
-| 2 | connect `nostdb-provider-github` as scaffolding, and the Core-side out-of-process client | PENDING |
+| 2 | connect `nostdb-provider-github` as scaffolding, and the Core-side out-of-process client | IN_PROGRESS |
 | 3 | locator parsing, browser-URL normalization, and ref-to-commit resolution | PENDING |
 | 4 | tree enumeration, blob reading, and the content cache tie-in | PENDING |
 | 5 | `link refresh`, and read-only federation over a remote `.nostdb` | PENDING |
