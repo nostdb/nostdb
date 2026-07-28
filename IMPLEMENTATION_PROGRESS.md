@@ -2,9 +2,9 @@
 
 Last updated: 2026-07-28
 
-Current stage: Stage 10 is `IN_PROGRESS` at increment 4. Every AI-free action maps to the
-CLI command it invokes, and the table and the dispatcher are checked against each other.
-What remains is the two increments that involve a model.
+Current stage: Stage 10 is `IN_PROGRESS` at increment 5. Everything up to the moment of a
+model call is built: the packet, the plan, and the gate in front of it. Increment 6 is the
+natural-language surface, which is the only part left that involves one.
 
 One thing Stage 9 built is unverified against reality: every test proves the provider behaves
 correctly against a *recorded* GitHub, and only a live run with a real credential proves the
@@ -1174,7 +1174,7 @@ first component in this project that is allowed to call a model.
 | 2 | connect `skills`; the action table and its declared AI usage | DONE |
 | 3 | Engine resolution, and the version check that decides compatibility | DONE |
 | 4 | AI-free actions, each proving it calls the same Core command the CLI does | DONE |
-| 5 | the analysis packet in PRD 17.5, and the budget check before any call | PENDING |
+| 5 | the analysis packet in PRD 17.5, and the budget check before any call | DONE |
 | 6 | natural-language read, write, and the ambiguous case | PENDING |
 
 ### Authorized scope
@@ -1271,6 +1271,52 @@ without a model — so the dispatcher legitimately maps more than the `none` row
 over prose could not express that, and the bridge between the two vocabularies is now written
 out as a list. It is the third time this Stage that a check has been wrong in a way the thing
 it checked was not.
+
+### Increment 5: the packet, and the gate in front of the call
+
+**The packet is compact by construction.** Section 17.5 opens with a prohibition — a Skill
+must not send an entire repository — and this makes it a property of the shape rather than a
+rule somebody follows. A packet is built from one source unit and the units an edge reaches
+from it, so its size is bounded by that unit and a fixed neighbour budget and does not grow
+when the repository does.
+
+A builder that took a graph and a filter would be one wrong filter away from sending
+everything, and the failure would be invisible: a larger prompt looks like a more thorough
+one right up until the bill arrives.
+
+It is anchored on the identity a `Contribution` names, which is what lets an enrichment's
+result be replaced exactly the way an analyzer's is. Deterministic edges are summarized
+rather than omitted — section 17.5 forbids AI from re-emitting one as an independent fact,
+and showing them is how that becomes possible to obey rather than only possible to violate.
+
+A truncated excerpt **says** it was truncated. A model shown one that does not may reason
+about what the code does after the cut and be confident about something it never saw.
+
+Excerpts are supplied by the caller rather than read by the Engine, which does not hold
+source. A packet builder that read files would be one that could read a file the scanner
+deliberately withheld, and a test asserts the inheritance: a `.env` in the project reaches
+neither the graph nor the packet.
+
+**The gate distinguishes four outcomes**, and the distinctions are the point. `refuse` is
+not `skip`: a skip says nobody was asked, a refusal says somebody already answered. `ask`
+happens once, because asking per unit trains a user to approve without reading. And a
+non-interactive session skips rather than proceeding on a default nobody chose — the
+structural database, the part that matters most, is already committed by then.
+
+### The defect that only a real plan could find
+
+The budget check passed eleven hand-written fixtures. Run against a plan `nostdb plan`
+actually produces, it revealed that the plan document carried no `ai_mode` field at all — so
+the **refusal path was unreachable in reality** while every fixture agreed it worked.
+
+The fixtures were not wrong about the check. They were wrong about the document, because
+their author wrote both. A suite written only against shapes its author invented tests the
+author's idea of the document, and the two agree by construction.
+
+The fix was to state `ai_mode` in the plan rather than have the Skill infer it from a zero
+estimate — a caller deciding whether enrichment may start has to tell "nothing to do" from
+"refused", and both produce zero. The test now runs against a real Engine when one is on the
+path, which is what stops this returning.
 
 ### What makes this Stage different from every one before it
 
@@ -2205,7 +2251,7 @@ the only rule that cannot silently weaken a declaration the author wrote.
 Increment 4 is larger than the three before it put together. It is being taken in parts,
 and this records what is done, what is not, and why the split falls where it does.
 
-Done, at `nostdb-spec` `aa64b35`, `nostdb-core` `10d421a`, and `nostdb-cli` `7f0b5aa`:
+Done, at `nostdb-spec` `aa64b35`, `nostdb-core` `9d9657e`, and `nostdb-cli` `cd81d0e`:
 link resolution and recursive federation in Core, federated queries, `link list`, `link
 check`, `sync`, and `link add` and `link remove` through the multi-file journal, and the source scanner with
 its hand-written Git-ignore matcher, `plan`, the Rust structural analyzer, `build`, and `apply`.
