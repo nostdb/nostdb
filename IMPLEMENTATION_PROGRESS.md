@@ -2,9 +2,19 @@
 
 Last updated: 2026-07-28
 
-Current stage: every Stage is `DONE`. NostDB 0.1.0 is published: `npm install nostdb`,
-`brew install nostdb/tap/nostdb`, a GitHub release with checksums, and a source install from the
-`v0.1.0` tag all install the same Engine and report byte-identical version data.
+Current stage: every Stage is `DONE`. NostDB 0.1.0 is published to npm and to a GitHub release
+with checksums, and `brew install nostdb/tap/nostdb` installs it.
+
+The three **installed** routes — npm, Homebrew, and the release archive — report byte-identical
+`--version --json`. A source install with `cargo install --git … --tag v0.1.0 --locked` builds and
+runs, and was not part of that comparison, so this summary used to claim four routes where the
+Stage 12 record claims three.
+
+The source route also has a defect this release keeps: the command `docs/PRD.md` section 25.3
+publishes ends in a package name that was wrong at `v0.1.0`, so following it verbatim fails with
+"could not find `nostdb`". Omitting the trailing name works, and the published spelling is correct
+from the next tag. Re-cutting `v0.1.0` to fix a documentation defect would invalidate an npm package
+whose checksums describe exactly the archives that release attached, which is the larger harm.
 
 Nothing in Stage 10 has ever called a model, and that is the design rather than a gap: what
 a model returns cannot be pinned by a fixture, so everything testable is the surface around
