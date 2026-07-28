@@ -16,3 +16,6 @@
 [submodule "skills"]
 	path = skills
 	url = https://github.com/nostdb/skills.git
+[submodule "plugins"]
+	path = plugins
+	url = https://github.com/nostdb/plugins.git

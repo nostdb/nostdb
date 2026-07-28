@@ -2,8 +2,9 @@
 
 Last updated: 2026-07-28
 
-Current stage: Stage 11 is `IN_PROGRESS` at increment 2. `manifest_version` is specified
-with twenty-two fixtures. Increment 3 connects `plugins`.
+Current stage: Stage 11 is `IN_PROGRESS` at increment 3. `manifest_version` is specified,
+`plugins` is connected with a reference manifest and authoring guidance, and the seventh and
+last child repository is pinned.
 
 Nothing in Stage 10 has ever called a model, and that is the design rather than a gap: what
 a model returns cannot be pinned by a fixture, so everything testable is the surface around
@@ -1176,7 +1177,7 @@ runs alongside the Engine.
 | --- | --- | --- |
 | 1 | this scope | DONE |
 | 2 | the `manifest_version` contract and the GitHub plugin source grammar, with fixtures | DONE |
-| 3 | connect `plugins`; a reference manifest and the authoring guidance | PENDING |
+| 3 | connect `plugins`; a reference manifest and the authoring guidance | DONE |
 | 4 | `nostdb plugin add`: resolution, pinning, digests, and consent | PENDING |
 | 5 | out-of-process execution and the Engine-owned exchange stream | PENDING |
 | 6 | the viewer's exchange format, and a reference viewer that consumes it | PENDING |
@@ -1213,6 +1214,36 @@ know which.
 Twenty-two fixtures install nothing. Here that is not only the convenience it was for the
 change-set and locator suites — a suite that installed a plugin to test installation would be
 executing the thing this contract exists to keep from executing.
+
+### Increment 3: the authoring surface, and a check written the other way round
+
+`plugins` is created, connected, and pinned — the seventh child repository and the last one
+the Stage table names. Apache-2.0: a schema nobody can implement freely is a schema with one
+implementation.
+
+The reference manifest **explains** each permission rather than only stating it, because a
+reference is the thing people copy and a copied permission nobody understood is one nobody
+audited.
+
+`AUTHORING.md` says plainly that a plugin is **not sandboxed**. The MVP does not implement
+one and does not claim one; a plugin runs as your user, with your files, and the process
+boundary is the whole of the isolation. It also says that nothing here claims an unsigned
+third-party plugin is safe, because nothing here has earned the right to.
+
+**A check written the other way round, after four failures.** The obvious way to enforce
+"do not claim a sandbox" is to search documents for the claim. That check fired immediately
+— on this repository's own `AGENTS.md`, in the list of things it forbids. A grep cannot
+distinguish a document *making* a claim from one *forbidding* it, and this project has now
+hit that exact failure four times: the provider's `.nostdb` path check, the Skill's unpinned
+`npx` check, the natural-language keyword scan that needed literals stripped, and this.
+
+So the check is inverted. Instead of searching for the claim, it **requires the disclaimer**:
+the two documents a user reads must each say plainly that there is no sandbox. That cannot
+false-positive on prose about the rule, and a document that added a false claim would have
+had to drop the disclaimer first — which is the thing being checked.
+
+A positive check is not always available. Where it is, it is the better one, because it fails
+when the thing you want is absent rather than when a string you fear is present.
 
 ### The sentence this Stage is organized around
 
