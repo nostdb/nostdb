@@ -2,8 +2,8 @@
 
 Last updated: 2026-07-28
 
-Current stage: Stage 10 is `IN_PROGRESS` at increment 2. `skills` is connected as
-scaffolding and the action table is written; no action is implemented.
+Current stage: Stage 10 is `IN_PROGRESS` at increment 3. `skills` is connected, the action
+table is written, and a Skill can decide which `nostdb` to invoke.
 
 One thing Stage 9 built is unverified against reality: every test proves the provider behaves
 correctly against a *recorded* GitHub, and only a live run with a real credential proves the
@@ -1171,7 +1171,7 @@ first component in this project that is allowed to call a model.
 | --- | --- | --- |
 | 1 | this scope | DONE |
 | 2 | connect `skills`; the action table and its declared AI usage | DONE |
-| 3 | Engine resolution, and the version check that decides compatibility | PENDING |
+| 3 | Engine resolution, and the version check that decides compatibility | DONE |
 | 4 | AI-free actions, each proving it calls the same Core command the CLI does | PENDING |
 | 5 | the analysis packet in PRD 17.5, and the budget check before any call | PENDING |
 | 6 | natural-language read, write, and the ambiguous case | PENDING |
@@ -1209,6 +1209,39 @@ The verifier checks what this repository can get wrong without compiling anythin
 database writer, no unpinned `latest` fallback, and no credential. The last matters more here
 than elsewhere — this repository holds prompts, which is the easiest place in the product for
 a secret to be pasted by accident.
+
+### Increment 3: deciding which `nostdb`
+
+Project-local, then a compatible global, then a pinned `npx`. Project-local first because a
+project that pinned a version did so on purpose, and a global overriding it would mean one
+checkout giving two people different answers from the same command.
+
+**Compatibility is asked per contract, not per Engine version.** A Skill checks the contract
+versions it needs: an Engine two releases newer that still reads `nost_language_version` 2 is
+compatible, and one that dropped it is not however close the numbers look. That is only
+possible because `--version --json` lists each contract separately, which is the independent
+versioning from Stage 1 paying off in a component written eight Stages later.
+
+**A command that does not answer is not an old `nostdb`.** It is treated as not being
+`nostdb` at all — something on the path with the right name and the wrong behavior is more
+dangerous than nothing on the path.
+
+**Never an unpinned fallback.** A version resolved at run time is a version nobody reviewed:
+merely surprising in an interactive session, but in a script it means last week's command and
+tonight's are different programs, and the only evidence of the change is that the output
+differs.
+
+Tested against fakes, and that is not a compromise. What is under test is the order and the
+check, both of which a fake answers exactly as a real Engine would — and it is the only way
+to test the case where *nothing* compatible exists, which a machine with a working
+installation cannot produce.
+
+**A verifier check that was wrong in a way this project has now seen twice.** It searched
+markdown for an unpinned `npx` invocation and fired on the document that *states* the
+prohibition — the same mistake the provider's verifier made about `.nostdb` paths. A document
+explaining a rule has to be able to write the rule down, and a check that forbids that is one
+people learn to work around. Twice is a pattern worth naming: a check written against a
+*string* will eventually fire on the text that explains why the string is forbidden.
 
 ### What makes this Stage different from every one before it
 
