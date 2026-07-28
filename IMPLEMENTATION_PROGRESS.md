@@ -2,10 +2,9 @@
 
 Last updated: 2026-07-28
 
-Current stage: Stage 9 is `IN_PROGRESS`, with increments 1 through 8 done. The provider is a
-working executable, and the Engine can start one and hold a conversation with it across a
-pipe. Increment 9 is `link refresh` and remote federation — the first work that is about
-what the Engine *does* with a provider rather than how it reaches one.
+Current stage: Stage 9 is `IN_PROGRESS`, with increments 1 through 9 done. `link refresh`
+works end to end, which closes a command that had been refused since Stage 7. Increment 10
+is read-only federation over a remote `.nostdb`, the last thing Stage 9 scoped.
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification, Engine, and command-surface repositories `nostdb-spec`,
@@ -1218,7 +1217,8 @@ product has, and the first that is not a local filesystem.
 | 6 | the per-snapshot tree cache | DONE |
 | 7 | an HTTP client, and the binary that serves the protocol | DONE |
 | 8 | running a provider as a child process | DONE |
-| 9 | `link refresh`, and read-only federation over a remote `.nostdb` | PENDING |
+| 9 | the settings snapshot fields and `link refresh` | DONE |
+| 10 | read-only federation over a remote `.nostdb` | PENDING |
 
 The contract comes first for the same reason it did in Stages 7 and 8: the provider is a
 separate executable, so the protocol between it and the Engine is the whole interface, and
@@ -1497,6 +1497,48 @@ These tests spawn **real processes**. Every other test in Stage 9 uses a fake, d
 this one cannot, because what is under test is the framing across a pipe and a fake transport
 cannot get that wrong in the same way.
 
+### Increment 9: closing a refusal that stood for two Stages
+
+`link refresh` was refused in Stage 7 with a message that was true when it was written: a
+local link is read live at every query and has no snapshot to advance. Stage 9 supplies a
+source that has one, so the command now does what it was always meant to.
+
+It needed a third amendment to the settings contract. Section 16.2 requires a resolved
+commit to be kept and is specific about what it is *not*: the locator remains the link's
+identity, and the commit is operational snapshot metadata. `links[].resolved_commit` and
+`resolved_digest` are where that lives — **settings rather than the graph, for the mirror
+image of the reason an alias goes the other way.** An alias is semantic and belongs with the
+declaration; a commit is operational, and putting one in a shared graph file would make two
+checkouts disagree about a link that is identical in both.
+
+No version bump, for the third time and the same reason: the preservation rule in that
+contract was written for exactly this.
+
+Three behaviors, each with a test:
+
+- **refresh is the only thing that advances a snapshot.** A query never does, so two queries
+  a week apart see the same commit unless somebody asked for a newer one;
+- **a local link reports having no snapshot** rather than failing, which is the refusal
+  message from Stage 7 turned into an answer;
+- **a link that cannot be reached keeps the commit it had.** Forgetting where it pointed
+  would turn one unreachable minute into a rebuild of everything it reached.
+
+The provider executable is named by an environment variable rather than a settings field: a
+provider is a machine-local installation detail, and a path in a shared settings file would
+name an executable that does not exist on somebody else's machine — or, worse, one that
+does. It is started on first use, so a project whose links are all local never needs a
+provider installed to be told it has nothing to do.
+
+`Action::DEFERRED` in the command surface is now empty, and a test asserts it. Every link
+action the product contract names is built.
+
+**A near miss worth recording.** Repinning the Engine was done with a `sed` over every
+40-character `rev` in the manifest, which also rewrote the `nostdb-server` pin Stage 8 had
+added. The build failed immediately because the invented commit does not exist — but a
+`sed` that matches a *shape* rather than a *name* would have silently repinned a real commit
+had one collided, and pinning is the mechanism the whole workspace's reproducibility rests
+on.
+
 ### Where Stage 9 stands
 
 The provider works. The protocol is specified and gated by fixtures, the Engine speaks it,
@@ -1504,11 +1546,9 @@ the provider serves it on standard input and output, locators canonicalize, and 
 API layer resolves, enumerates, reads, and caches — 47 tests, **none of which touches a
 network**.
 
-What remains is Engine-side and is about what the Engine *does* with a provider rather than
-how it reaches one: `link refresh` recording a newer commit, and read-only federation over a
-remote `.nostdb`. Both need somewhere to keep a resolved commit, and section 16.2 says where
-— operational snapshot metadata, not a target identity — which means another amendment to
-the settings contract before either can be built.
+What remains is read-only federation over a remote `.nostdb`: opening a graph a provider
+materialized and unioning it into a query the way a local link already is. The pieces it
+needs — a verified artifact, a resolved snapshot, a provider that can be started — all exist.
 
 What also remains, and is not an increment, is the **live conformance run against a real
 repository with a real credential**. The scope has named it unauthorized since it was
@@ -1967,7 +2007,7 @@ the only rule that cannot silently weaken a declaration the author wrote.
 Increment 4 is larger than the three before it put together. It is being taken in parts,
 and this records what is done, what is not, and why the split falls where it does.
 
-Done, at `nostdb-spec` `89fcd66`, `nostdb-core` `96011ce`, and `nostdb-cli` `36edb62`:
+Done, at `nostdb-spec` `aa64b35`, `nostdb-core` `6d63393`, and `nostdb-cli` `7f0b5aa`:
 link resolution and recursive federation in Core, federated queries, `link list`, `link
 check`, `sync`, and `link add` and `link remove` through the multi-file journal, and the source scanner with
 its hand-written Git-ignore matcher, `plan`, the Rust structural analyzer, `build`, and `apply`.
