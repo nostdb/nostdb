@@ -157,6 +157,28 @@ if [ -f .gitmodules ]; then
   done < <(git config --file .gitmodules --get-regexp '^submodule\..*\.url$')
 fi
 
+# Cross-repository distribution check.
+#
+# This root, docs/REPOSITORIES.md, and docs/PRD.md section 8.1 all describe the Skills as
+# independently installable, and an installer discovers a definition at
+# `skills/<name>/SKILL.md` inside that child. Nothing checked it, and the child satisfied every
+# pin invariant here while shipping an action table, four scripts, and no definition at all —
+# so the claim was made in three documents and true in none.
+#
+# What a definition must contain is the child's verifier to check. That one exists is checked
+# here, because this is where the promise is made.
+if [ -d skills ]; then
+  installable=$(
+    find skills/skills -mindepth 2 -maxdepth 3 -name SKILL.md 2>/dev/null |
+      LC_ALL=C sort
+  )
+  if [ -z "$installable" ]; then
+    echo "the skills child publishes no skills/<name>/SKILL.md, so nothing in it is installable" >&2
+    exit 1
+  fi
+  echo "installable skills:" $(printf '%s\n' "$installable" | sed 's|^skills/skills/||; s|/SKILL\.md$||')
+fi
+
 # Cross-repository integration check.
 #
 # A diagnostic code is a stable public identifier, and the registry nostdb-spec publishes

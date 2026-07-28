@@ -10,6 +10,13 @@ a model returns cannot be pinned by a fixture, so everything testable is the sur
 the call. A live run with a provider and a credential remains unauthorized, and is the only
 thing that would show whether a model's proposals are any good.
 
+Stage 10 has one repair recorded against it, and it did not reopen the Stage. `skills` was
+delivered with no `SKILL.md` in it, so the Skills three documents called independently
+installable could not be installed at all. Each is now published at
+`skills/skills/<name>/SKILL.md`, and the layout is confirmed by installing the published child
+rather than only by a document describing the installer. See
+`Stage 10 repair: nothing in skills was installable`.
+
 One thing Stage 9 built is unverified against reality: every test proves the provider behaves
 correctly against a *recorded* GitHub, and only a live run with a real credential proves the
 recording is what GitHub actually sends. That run is named in the Stage 9 scope as needing
@@ -1572,6 +1579,177 @@ An AI provider and its credential are not authorized, and this scope does not as
 - distribution, which is what makes Engine resolution find anything at all, and is Stage 12.
   Until then resolution is testable against a fake `nostdb` on the path, which is enough to
   prove the *order* is right.
+
+## Stage 10 repair: nothing in `skills` was installable
+
+Stage 10 stays `DONE` and Stage 11 stays the only `IN_PROGRESS` Stage. This is recorded here
+rather than as a Stage because it repairs delivered work: the Stage's claim was untrue rather
+than incomplete.
+
+### The defect
+
+`skills` shipped an action table, a resolution document, an enrichment document, four scripts,
+and four test suites. It shipped no `SKILL.md`, anywhere. Nothing in it could be installed,
+which is the one thing the repository exists to do.
+
+Three documents said otherwise:
+
+| Document | What it said |
+| --- | --- |
+| `docs/PRD.md` section 8.1 | `skills/` — `Independently installable Agent Skills` |
+| `docs/REPOSITORIES.md` | `independently installable Agent Skills; no database writer` |
+| the child `README.md` | opened with `Independently installable Agent Skills for NostDB` |
+
+### Why nothing caught it
+
+Every check the repository had was a prohibition. No database writer, no unpinned `latest`
+fallback, no credential, no second copy of the PRD or the grammar. A repository containing no
+Skill violates none of them, so all of them passed.
+
+The Stage 10 record even names the testable surface as everything *around* the model call and
+lists four suites for it. All four test the scripts, and the scripts are real. None tests that
+anything would ever cause an agent to run them.
+
+That is the Stage's own recorded lesson arriving one level up. Three times in Stage 10 a check
+was wrong in a way the thing it checked was not; this time the checks were right about
+everything except whether the subject existed.
+
+### The layout, and why the path repeats itself
+
+```text
+skills/skills/nostdb/SKILL.md
+```
+
+The first `skills/` is the submodule path in this workspace. The second is the directory an
+installer scans. Both have to hold at once, because the child is a submodule of this
+superproject *and*, independently, a source `npx skills add nostdb/skills` reads with no
+knowledge of this root at all. An installer discovers `skills/<name>/SKILL.md` and
+`skills/<category>/<name>/SKILL.md`; the child uses the first.
+
+**The skill folder is the unit an installer copies.** That is the whole reason the four
+scripts moved into `skills/nostdb/scripts/`: a definition that referenced them from the
+repository root would resolve here and be missing from every install, which is the one way a
+Skill can pass every check in this workspace and still be broken for the person who installed
+it.
+
+`tests/` and `scripts/verify-repository.sh` stayed outside, because they verify the repository
+rather than travelling with an install. Shipping a test harness into every install would be
+payload nobody asked for.
+
+### The map moved out of a test and into the shipped document
+
+The action table speaks in invocations, `/nostdb . --ai=off`. The dispatcher speaks in action
+names, `build`. The only place the two vocabularies met was a case statement inside
+`tests/dispatch.test.sh` — a file no running agent ever opens. An agent could read the shipped
+repository, learn that both existed, and have no way to connect them.
+
+So the map is now a table in `SKILL.md`, and the test checks it rather than holding it. It is
+pinned in both directions and against both neighbours: the dispatcher must map exactly the
+actions the table declares AI-free, and every invocation the definition promises must be one
+the action table declares, with the same AI usage. Three vocabularies, one copy.
+
+### What is checked now
+
+Fourteen conditions, each proven to reject rather than assumed to work.
+
+In the child verifier:
+
+| Rejected condition | Diagnostic |
+| --- | --- |
+| no definition at a discoverable path | `no installable skill found; an installer discovers skills/<name>/SKILL.md` |
+| a definition too shallow, at `skills/SKILL.md` | `these definitions are at a path no installer discovers` |
+| a definition too deep, at `skills/a/b/c/SKILL.md` | `these definitions are at a path no installer discovers` |
+| frontmatter not opening on line 1 | `must open with a --- frontmatter delimiter on line 1` |
+| no closing frontmatter delimiter | `has no closing --- frontmatter delimiter` |
+| no `name` | `declares no name in its frontmatter` |
+| no `description` | `declares no description in its frontmatter` |
+| `name` differing from the directory | `declares the name nostdb-graph and sits in nostdb; the two must agree` |
+| a reference reaching outside the folder | `references ../shared/HELPER.md, which is not in the folder an installer copies` |
+| a script not committed executable | `is not executable, so an installed skill could not run it` |
+
+In `tests/dispatch.test.sh`:
+
+| Rejected condition | Diagnostic |
+| --- | --- |
+| a dispatcher action the definition does not declare | `expected [...], got [... peek ...]` |
+| an invocation the action table does not declare | `view serves /nostdb peek ., which the table does not declare` |
+| an AI usage disagreeing with the action table | `sync is declared optional in SKILL.md and otherwise in the table` |
+
+In `scripts/verify-workspace.sh`:
+
+| Rejected condition | Diagnostic |
+| --- | --- |
+| the child publishing no definition | `the skills child publishes no skills/<name>/SKILL.md, so nothing in it is installable` |
+
+The root check exists because the root is where the promise is made. What a definition must
+contain is the child's business; that one exists is this workspace's, and `docs/PRD.md`
+section 8.1 is the document that would otherwise stay untrue.
+
+One positive control matters as much as the rejections: a definition at
+`skills/graph/probe/SKILL.md` is **accepted**. The depth rule permits both layouts an
+installer scans rather than only the one this child happens to use, so a future category
+layout is a choice rather than a verifier change.
+
+### The one check that could not be a fixture
+
+Every rejection above tests this workspace's idea of the installer. The Stage 9 problem in
+miniature: a recording proves the recorder, not the thing recorded.
+
+So the published child was installed for real, into a scratch directory rather than this
+project, because the root contract requires the installed `.agents/skills` and
+`skills-lock.json` here to be preserved:
+
+```bash
+npx --yes skills add nostdb/skills --agent claude-code --yes
+```
+
+It reported `Installed 1 skill: nostdb (copied) → ./.claude/skills/nostdb`, and wrote a lock
+recording the path it had discovered:
+
+```json
+"skillPath": "skills/nostdb/SKILL.md"
+```
+
+All eight files arrived — four documents and four scripts. Each script arrived mode `755`, so
+the claim that a copy preserves the executable bit is now an observation rather than an
+assumption. `dispatch.sh build-nost .` and the natural-language gate both ran from the
+installed copy.
+
+That is what makes this repair verified rather than merely argued: the layout is confirmed by
+the installer, not only by a document describing the installer.
+
+### What this repair does not establish
+
+- only the project-scope `claude-code` install was exercised. Global install, the
+  `--skill <name>` per-skill form, and the other agent targets are unexercised;
+- the definition is still unproven where Stage 10 was: no model has read it, so whether its
+  instructions actually produce good behavior is unknown, and no fixture can settle that.
+
+### Verification
+
+In `skills`, at commit `0272a4b`:
+
+- `sh -n scripts/verify-repository.sh`
+- `./scripts/verify-repository.sh`, which now reports `installable: skills/nostdb`
+- all four test suites, 22 checks in the dispatch suite alone
+- `git diff --check`
+- the ten child rejections and three dispatch rejections above, each run against a copy of the
+  tree in a scratch directory
+- the live install and the run of the installed copy
+
+In the root:
+
+- `bash -n scripts/verify-workspace.sh`
+- `./scripts/verify-workspace.sh`, which now reports `installable skills: nostdb`
+- the root rejection above, proven by holding the definition aside and restoring it
+- `git diff --check`
+
+### Two stale documents corrected on the way
+
+`README.md` and `docs/REPOSITORIES.md` both listed `nostdb-provider-github`, `skills`, and
+`plugins` as not connected and not yet authorized. All three have been connected and pinned
+since Stages 9, 10, and 11 respectively. The lists were three Stages behind, and one of them
+directly contradicted the repair being recorded here.
 
 ## Stage 9 scope
 

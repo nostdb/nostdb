@@ -11,8 +11,9 @@ workspace. Runtime implementation does not belong in the root repository.
 ## Current status
 
 The root workspace is initialized, and `nostdb-spec`, `nostdb-core`,
-`nostdb-cli`, and `nostdb-server` are connected as submodules pinned to exact
-commits. No legacy runtime code has been copied into this repository.
+`nostdb-cli`, `nostdb-server`, `nostdb-provider-github`, `skills`, and `plugins`
+are connected as submodules pinned to exact commits. No legacy runtime code has
+been copied into this repository.
 
 `nostdb-spec` publishes the `.nost` language, `.nostdb` container, and query
 subset contracts with a conformance suite. `nostdb-core` implements the graph
@@ -31,8 +32,14 @@ the local endpoint, the lock that keeps one instance per user, and sessions that
 call public Core APIs. `nostdb query --database @name` runs through it; every
 path-based command still runs without it.
 
-The remaining five repositories will be created and connected by the Stage that
-first needs each one.
+`nostdb-provider-github` is the out-of-process GitHub provider: it retrieves
+bytes and metadata, and Core interprets the graph formats. `skills` publishes the
+Agent Skills, installable on their own with `npx skills add nostdb/skills`.
+`plugins` owns the plugin manifest schema and the reference plugins; the only
+plugin manager is in `nostdb-cli`.
+
+The remaining two repositories, `nostdb-distribution` and `homebrew-tap`, will be
+created and connected by the Stage that first needs each one.
 
 ## Start here
 
@@ -52,11 +59,11 @@ nostdb/
 ├── nostdb-core/              # connected and pinned
 ├── nostdb-cli/               # connected and pinned
 ├── nostdb-server/            # connected and pinned
-├── nostdb-provider-github/   # not yet authorized
+├── nostdb-provider-github/   # connected and pinned
+├── skills/                   # connected and pinned
+├── plugins/                  # connected and pinned
 ├── nostdb-distribution/      # not yet authorized
-├── homebrew-tap/             # not yet authorized
-├── skills/                   # not yet authorized
-└── plugins/                  # not yet authorized
+└── homebrew-tap/             # not yet authorized
 ```
 
 Every connected submodule is cloned at its pinned commit with:

@@ -39,15 +39,15 @@ Connected and pinned to an exact commit:
 - `nostdb-core/`
 - `nostdb-cli/`
 - `nostdb-server/`
+- `nostdb-provider-github/`
+- `skills/`
+- `plugins/`
 
 Not connected. Each is a named dependency of the Stage that first needs it, and
 creating it still requires explicit authorization at that time:
 
-- `nostdb-provider-github/`
 - `nostdb-distribution/`
 - `homebrew-tap/`
-- `skills/`
-- `plugins/`
 
 `.gitmodules` records read-only HTTPS URLs so that the documented recursive
 clone works without SSH keys. A contributor who pushes to a child keeps the
@@ -112,6 +112,33 @@ Root CI checks out the pinned commit set recursively, runs
 `scripts/verify-workspace.sh`, and then runs each child's
 `scripts/verify-repository.sh`. A child that does not provide that script fails
 root verification.
+
+## Installable Skills
+
+`skills/` is a submodule of this workspace and, independently, a source an Agent
+Skill installer reads directly. Both have to hold at once, so the child publishes
+each Skill at the path an installer discovers:
+
+```text
+skills/skills/<name>/SKILL.md
+```
+
+The first `skills/` is the submodule path in this workspace; the second is the
+directory the installer scans. A Skill is then installed by name, with no
+reference to this superproject:
+
+```bash
+npx skills add nostdb/skills
+```
+
+The **skill folder is the unit an installer copies**, so everything a definition
+references lives inside its own folder. A reference reaching outside it resolves
+in the child repository and is missing from every install, which is the one way
+a Skill can pass every check here and still be broken for the person who
+installed it. The child verifier enforces it, and root verification requires the
+child to publish at least one discoverable definition — this root claims the
+Skills are independently installable, so this is where that claim is checked
+rather than assumed.
 
 ## Licensing
 
