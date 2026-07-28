@@ -2,9 +2,10 @@
 
 Last updated: 2026-07-28
 
-Current stage: Stage 9 is `IN_PROGRESS` at increment 2. The provider protocol contract is
-specified and `nostdb-provider-github` is created, connected, and pinned as scaffolding.
-What remains in the increment is the Core-side out-of-process client.
+Current stage: Stage 9 is `IN_PROGRESS`, with increments 1 and 2 done. The provider protocol
+is specified, `nostdb-provider-github` is connected as scaffolding, and the Engine can hold
+the conversation. Increment 3 is the locator and snapshot resolution the provider itself
+must implement.
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification, Engine, and command-surface repositories `nostdb-spec`,
@@ -1210,7 +1211,7 @@ product has, and the first that is not a local filesystem.
 | Increment | Content | Status |
 | --- | --- | --- |
 | 1 | the `provider_protocol_version` contract and the `github://` locator grammar, with fixtures | DONE |
-| 2 | connect `nostdb-provider-github` as scaffolding, and the Core-side out-of-process client | IN_PROGRESS |
+| 2 | connect `nostdb-provider-github` as scaffolding, and the Core-side out-of-process client | DONE |
 | 3 | locator parsing, browser-URL normalization, and ref-to-commit resolution | PENDING |
 | 4 | tree enumeration, blob reading, and the content cache tie-in | PENDING |
 | 5 | `link refresh`, and read-only federation over a remote `.nostdb` | PENDING |
@@ -1270,6 +1271,37 @@ be trusted to report that it is wrong.
 Twenty-five fixtures, none of which reaches a network — twelve locators, thirteen messages.
 The locator set includes a browser URL that must normalize, because a locator is a link's
 identity and two spellings of one identity is two links.
+
+### Increment 2: what the Engine refuses to take on trust
+
+`nostdb-core` can now hold the whole conversation. The transport is a trait, so every test
+runs against a scripted stream — no process spawned, no pipe opened, no network touched. A
+client exercisable only by launching a real executable against a real host is one nobody can
+verify in CI, and the contract requires behavior on a *cached* snapshot while the host is
+unreachable, which a live test could not produce on demand.
+
+A provider is the least trusted component in the system: it holds a credential, talks to a
+network, and is the one most likely to have been written by somebody else. So the client
+checks rather than accepts, and each of these has a test:
+
+- **a `materialize` digest is a claim.** The Engine computes its own over the bytes it
+  received. Recording the provider's answer would make the digest decorative, which is the
+  opposite of why it travels with the artifact;
+- **a `read` declares a length and exactly that many bytes are consumed.** A stream that
+  cannot supply them fails as a transport error rather than being resynchronized, because a
+  stream whose framing is wrong cannot be trusted to report that it is wrong;
+- **a resolve that does not say whether it was cached is refused.** Absent is not "fresh",
+  and a provider that did not say must not be recorded as having confirmed the snapshot;
+- **a reply answering a different request is a protocol violation**, not something to match
+  up later;
+- **nothing may precede the handshake.** A request sent before a version is agreed has
+  already guessed what the reply will mean.
+
+`ProviderError::leaves_link_declared` is true for the provider's own unavailability code and
+nothing else. The contract requires an unavailable source to keep its declaration and yield
+reachable partial results, but a protocol violation is a defect in the provider rather than
+a fact about the host — treating the two alike would hide a broken provider behind a
+warning. A rejected credential is likewise not a source that happens to be down.
 
 ### What section 16 pins down before any code
 
