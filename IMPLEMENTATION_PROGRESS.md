@@ -2,9 +2,10 @@
 
 Last updated: 2026-07-28
 
-Current stage: Stage 9 is `IN_PROGRESS`, with increments 1 through 3 done. The provider
+Current stage: Stage 9 is `IN_PROGRESS`, with increments 1 through 4 done. The provider
 protocol is specified, the Engine can hold the conversation, and the provider canonicalizes
-a `github://` locator. Increment 4 is everything that needs an HTTP transport.
+a locator and knows how to ask GitHub for a commit, a tree, and a blob. Increment 5 is the
+concrete HTTP client and the request loop that joins the two halves.
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification, Engine, and command-surface repositories `nostdb-spec`,
@@ -1212,8 +1213,8 @@ product has, and the first that is not a local filesystem.
 | 1 | the `provider_protocol_version` contract and the `github://` locator grammar, with fixtures | DONE |
 | 2 | connect `nostdb-provider-github` as scaffolding, and the Core-side out-of-process client | DONE |
 | 3 | locator parsing and browser-URL normalization | DONE |
-| 4 | the HTTP transport, ref-to-commit resolution, tree enumeration, blob reading, and the content cache tie-in | PENDING |
-| 5 | `link refresh`, and read-only federation over a remote `.nostdb` | PENDING |
+| 4 | the HTTP boundary, ref-to-commit resolution, tree enumeration, and blob reading | DONE |
+| 5 | an HTTP client, the request loop, the content cache tie-in, `link refresh`, and read-only federation over a remote `.nostdb` | PENDING |
 
 The contract comes first for the same reason it did in Stages 7 and 8: the provider is a
 separate executable, so the protocol between it and the Engine is the whole interface, and
@@ -1338,6 +1339,48 @@ so is the enumeration increment 4 already contains; splitting the transport acro
 increments would mean designing it against one caller and then discovering the second. The
 locator half is complete and independently gated, which is what makes the move a
 reorganization rather than a deferral.
+
+### Increment 4: the HTTP boundary, and no HTTP client
+
+The provider can resolve a ref to a commit, list what that commit contains, and read one
+blob. All of it against an `Http` trait, so every test uses a recorded response and none
+reaches a network.
+
+The trait is not only a testing device. It makes choosing an HTTP client a decision about
+*one implementation of one trait* rather than one the whole crate is built on top of, so it
+can be argued on its own merits when it is made rather than inherited from whatever was
+convenient on the first day. It is also the only way to exercise what the contract actually
+asks for: section 16.3 requires behavior when the host is **unreachable** and when a rate
+limit is **reached**, neither of which a live test can produce on demand and both of which a
+recorded response produces exactly.
+
+Mapping a status to a code is the part worth arguing, because the code is what a caller
+branches on and each one sends somebody somewhere different:
+
+- **an unauthenticated 404 reports that a credential is required**, not that the source is
+  gone. GitHub answers 404 for a private repository deliberately, so that a probe cannot
+  enumerate them — and reporting "gone" would send somebody looking for a typo in a name
+  that is spelled correctly;
+- **a 403 is a rate limit or a permissions failure**, told apart by the remaining-quota
+  header. Reporting a rate limit as a rejected credential would send somebody to rotate a
+  token that is working;
+- **5xx and a transport failure are the same thing to a caller.** The host did not answer,
+  the link stays declared, and a query returns what it can reach.
+
+A truncated tree is refused rather than returned. A build over a partial listing would
+report coverage it does not have, and every file the listing omitted would look like a file
+the repository does not contain — which is worse than an error, because it is a wrong answer
+that looks like a right one.
+
+Blobs are fetched with the raw media type. Base64 inside JSON would inflate every file by a
+third and make a large one cost more to decode than to fetch.
+
+`serde_json` is the first dependency this crate takes, reviewed in the manifest. There is
+still no HTTP client, and that is deliberate rather than pending.
+
+**Scope move.** The content cache tie-in moves to increment 5. It needs a real client to be
+worth anything — the point of a blob ID is to avoid a download, and there is nothing to
+avoid until something downloads.
 
 ### What section 16 pins down before any code
 
