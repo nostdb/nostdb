@@ -2,8 +2,7 @@
 
 Last updated: 2026-07-28
 
-Current stage: none is `IN_PROGRESS`. Stage 10 closed at increment 6. Stage 11 stays
-`PENDING` until `plugins` is created and pinned; the Stages 7 through 12 grant covers it.
+Current stage: Stage 11 is `IN_PROGRESS` at increment 1, which records the scope below.
 
 Nothing in Stage 10 has ever called a model, and that is the design rather than a gap: what
 a model returns cannot be pinned by a fixture, so everything testable is the surface around
@@ -47,7 +46,7 @@ requirements.
 | 8 | DONE | Per-user local daemon | Stage 7, plus connected `nostdb-server` |
 | 9 | DONE | GitHub provider | Stage 7, plus connected `nostdb-provider-github` |
 | 10 | DONE | Skills and AI enrichment workflow | Stages 7 and 9, plus connected `skills` |
-| 11 | PENDING | Plugin manager and WebGPU reference viewer | Stage 7, plus connected `plugins` |
+| 11 | IN_PROGRESS | Plugin manager and WebGPU reference viewer | Stage 7, plus connected `plugins` |
 | 12 | PENDING | npm, Homebrew, and GitHub distribution gates | Stages 8 through 11, plus connected `nostdb-distribution` and `homebrew-tap` |
 
 A Stage whose dependency names a child repository cannot start until that
@@ -1166,6 +1165,74 @@ nothing.
 - `query` and every output format, which need the result envelope contract;
 - `build`, `plan`, `apply`, and `sync`, which need the analysis pipeline and link resolution;
 - `catalog`, `server`, `plugin`, and `view`, which belong to Stages 8, 11, and 12.
+
+## Stage 11 scope
+
+Stage 11 builds the plugin system: the first mechanism by which code somebody else wrote
+runs alongside the Engine.
+
+| Increment | Content | Status |
+| --- | --- | --- |
+| 1 | this scope | DONE |
+| 2 | the `manifest_version` contract and the GitHub plugin source grammar, with fixtures | PENDING |
+| 3 | connect `plugins`; a reference manifest and the authoring guidance | PENDING |
+| 4 | `nostdb plugin add`: resolution, pinning, digests, and consent | PENDING |
+| 5 | out-of-process execution and the Engine-owned exchange stream | PENDING |
+| 6 | the viewer's exchange format, and a reference viewer that consumes it | PENDING |
+
+### The sentence this Stage is organized around
+
+> Installation MUST NOT execute plugin code.
+
+Everything else follows. A manager that ran anything before validating it would have already
+lost, because the validation exists to decide whether running is safe and a plugin that ran
+first has had its answer. So installation is: resolve a ref to a commit, fetch a tree, check
+paths and archive limits, read a manifest, verify digests, record what was approved — and
+stop. Execution is a separate act, later, and it refuses an installation whose digest no
+longer matches.
+
+### What the manager owns, and where
+
+The native plugin manager exists **once**, in `nostdb-cli`. Skills invoke it. A second
+registry in the Skill would mean two answers to "what is installed", and the one a user got
+would depend on which surface they reached for — the same argument that shaped Stage 10's
+dispatcher, arriving at a different component.
+
+Installations persist across CLI and Server processes, and project scope beats global scope
+for a plugin of the same name, for the reason a project-local Engine beats a global one: a
+project that pinned something did so on purpose.
+
+### What a plugin never receives
+
+- **the binary format.** A plugin gets authorized graph data through a versioned
+  Engine-owned exchange, never a `.nostdb` parser API and never the file. A viewer that
+  parsed the container would be a second reader of a format with exactly one, and the
+  ownership boundary this project has held for eleven Stages would end here;
+- **a shell.** An entrypoint is an argument vector. A manifest comes from a repository
+  somebody else wrote, and a string a shell interprets is that author choosing what runs;
+- **permissions it did not declare.** A manifest states what it wants; the user approves it;
+  the recorded approval is what execution is checked against.
+
+### The honesty this Stage has to maintain
+
+The MVP does not claim an unsigned third-party plugin is safe, and the contract says so
+outright. This Stage must not describe out-of-process execution as a sandbox, because it is
+not one — the root contract forbids claiming a sandbox that is not implemented, and a
+process boundary is a real boundary that does not become a different one by being described
+warmly.
+
+What it does buy is stated plainly: a plugin cannot read the Engine's memory, cannot reach a
+database handle, and cannot outlive the request it was started for. That is the same argument
+the provider was built on in Stage 9, and it is worth no more here than it was there.
+
+### Deferred out of Stage 11
+
+- a signature scheme. A signature may strengthen trust later; adding one now would let the
+  MVP imply a guarantee it has not earned;
+- non-GitHub plugin sources, for the reason Stage 9 deferred non-GitHub providers: an
+  abstraction designed against one example is a description of that example;
+- the WebGPU rendering itself beyond a reference that proves the exchange format carries
+  what a viewer needs. Performance tiers are a real requirement and not a Stage 11 one.
 
 ## Stage 10 scope
 
