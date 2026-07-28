@@ -22,3 +22,6 @@
 [submodule "nostdb-distribution"]
 	path = nostdb-distribution
 	url = https://github.com/nostdb/nostdb-distribution.git
+[submodule "homebrew-tap"]
+	path = homebrew-tap
+	url = https://github.com/nostdb/homebrew-tap.git

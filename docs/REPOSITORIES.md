@@ -43,11 +43,10 @@ Connected and pinned to an exact commit:
 - `skills/`
 - `plugins/`
 - `nostdb-distribution/`
-
-Not connected. Each is a named dependency of the Stage that first needs it, and
-creating it still requires explicit authorization at that time:
-
 - `homebrew-tap/`
+
+Every child the normative layout names is now connected and pinned. `nostdb-mcp`
+is created only after the public Core API stabilizes, and is not one of them.
 
 `.gitmodules` records read-only HTTPS URLs so that the documented recursive
 clone works without SSH keys. A contributor who pushes to a child keeps the

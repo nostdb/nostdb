@@ -12,8 +12,9 @@ workspace. Runtime implementation does not belong in the root repository.
 
 The root workspace is initialized, and `nostdb-spec`, `nostdb-core`,
 `nostdb-cli`, `nostdb-server`, `nostdb-provider-github`, `skills`, `plugins`, and
-`nostdb-distribution` are connected as submodules pinned to exact commits. No legacy runtime code has
-been copied into this repository.
+`nostdb-distribution`, and `homebrew-tap` are connected as submodules pinned to exact
+commits — every child the topology names. No legacy runtime code has been copied into
+this repository.
 
 `nostdb-spec` publishes the `.nost` language, `.nostdb` container, and query
 subset contracts with a conformance suite. `nostdb-core` implements the graph
@@ -40,11 +41,14 @@ plugin manager is in `nostdb-cli`.
 
 `nostdb-distribution` publishes the unscoped `nostdb` npm package: a thin launcher
 that resolves this platform to a released artifact, verifies it against checksums the
-package itself ships, and executes it. Nothing is published yet, so the launcher
-refuses by name and says what is missing.
+package itself ships, and executes it. `homebrew-tap` holds the formula, which
+installs the same native binary and verifies the same release checksum.
 
-The remaining repository, `homebrew-tap`, will be created and connected by the
-increment that first needs it.
+Nothing is published. Both refuse by name and say what is missing rather than
+fetching something unverified, which is the correct state for a release that does not
+exist yet.
+
+Every child the topology names is now connected and pinned.
 
 ## Start here
 
@@ -68,7 +72,7 @@ nostdb/
 ├── skills/                   # connected and pinned
 ├── plugins/                  # connected and pinned
 ├── nostdb-distribution/      # connected and pinned
-└── homebrew-tap/             # not yet authorized
+└── homebrew-tap/             # connected and pinned
 ```
 
 Every connected submodule is cloned at its pinned commit with:

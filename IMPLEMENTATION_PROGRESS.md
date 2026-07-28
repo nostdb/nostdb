@@ -1484,7 +1484,7 @@ The last Stage, and the one that makes every earlier one reachable by somebody w
 | --- | --- | --- |
 | 1 | the version report, completed | DONE |
 | 2 | connect `nostdb-distribution`; the npm launcher, platform resolution, and artifact checksums | DONE |
-| 3 | connect `homebrew-tap`; the formula and its checksum verification | PENDING |
+| 3 | connect `homebrew-tap`; the formula and its checksum verification | DONE |
 | 4 | release assembly, published checksums, and the source-install route | PENDING |
 
 ### Increment 1 first, because it is what every other increment is verified against
@@ -1669,6 +1669,49 @@ already uses, which is how every other child was pushed.
 Recorded because the next person to create a child repository will hit it, and the diagnostic —
 "refusing to allow an OAuth App to create or update workflow" — does not say that a different remote
 would work.
+
+## Stage 12 increment 3: the tap
+
+`homebrew-tap` is created, connected, and pinned. **Every child the normative layout names is now
+connected**, which is the first time that has been true since Stage 1 narrowed its own scope to two.
+
+The formula installs the same native binary npm and a GitHub release install, and verifies the same
+release checksum. It builds nothing, and the verifier refuses `cargo`, `make`, or a Rust dependency
+appearing in it: section 25.2 says the formula installs the native CLI and Engine and verifies the
+release checksum, and one that compiled from source would be installing something no checksum in the
+file describes.
+
+### The test asserts the report, not that the binary starts
+
+Section 25.3 requires release archives, npm wrappers, Homebrew formulae, and source builds to report
+compatible `nostdb --version --json` data. A formula test that only checked for a running process
+would pass for a build that reported nothing, so it reads the report and checks the product, the
+version, and the contract lists — and then runs `nostdb init`, because a path-based command working
+with no daemon is the invariant the product is arranged around and the one an install is most likely
+to break.
+
+### Placeholder digests, said out loud
+
+Every `sha256` is the all-zero placeholder, so `brew install` refuses rather than fetching something
+unverified. That is the correct state for an unpublished tap.
+
+The verifier requires that state to be **deliberate**: a formula carrying placeholder digests must
+also say why in the file. Otherwise the difference between "no release yet" and "somebody forgot to
+update the digests after one" is invisible, and the second is how an unverified download gets shipped.
+
+### `brew style` found two defects `ruby -c` could not
+
+The verifier must be non-mutating, and `brew style` requires the formula to be inside a real tap —
+installing one would change this machine's Homebrew. So the verifier runs it only where the repository
+*is* a tap, and otherwise says so and prints the commands to do it by hand.
+
+Run that way once, it found two real defects: `version` must precede `license`, and
+`assert_predicate ..., :exist?` is deprecated in favour of `assert_path_exists`. Neither is visible to
+a syntax check, and both are the kind of thing that fails at somebody else's install rather than here.
+The temporary tap was removed afterwards and Homebrew's state restored.
+
+Recorded because the verifier now prints those commands: a check it cannot run itself is one a reader
+has to be told how to run, or it is a check nobody runs.
 
 ### Deferred out of Stage 12 until authorized
 
