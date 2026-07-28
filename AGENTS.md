@@ -76,7 +76,6 @@ until the owning contract is resolved.
 4. Run formatting, build, lint, tests, and repository-specific verification.
 5. Record commands and results in `IMPLEMENTATION_PROGRESS.md`.
 6. Mark the Stage `DONE` only when every Acceptance Criterion passes.
-7. Do not continue automatically to another Stage in the same request.
 
 Never mark two Stages `IN_PROGRESS`.
 

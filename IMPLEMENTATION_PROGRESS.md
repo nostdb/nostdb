@@ -49,8 +49,7 @@ A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
 explicit user authorization at that time.
 
-Only one Stage may be `IN_PROGRESS`. Do not continue automatically to the next
-Stage in the same request.
+Only one Stage may be `IN_PROGRESS`.
 
 ## Stage 0 scope
 
