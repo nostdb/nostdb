@@ -1185,7 +1185,7 @@ runs alongside the Engine.
 | 2 | the `manifest_version` contract and the GitHub plugin source grammar, with fixtures | DONE |
 | 3 | connect `plugins`; a reference manifest and the authoring guidance | DONE |
 | 4 | reading a plugin source and validating a manifest | DONE |
-| 5 | `nostdb plugin add`: fetching, digests, consent, and the install record | PENDING |
+| 5 | `nostdb plugin add`: fetching, digests, consent, and the install record | DONE |
 | 6 | out-of-process execution and the Engine-owned exchange stream | PENDING |
 | 7 | the viewer's exchange format, and a reference viewer that consumes it | PENDING |
 
@@ -1277,6 +1277,278 @@ and fetching is increment 5, because the two have different testability: reading
 twenty-two published fixtures with no network at all, and fetching needs the same recorded-
 response treatment the provider got. Grouping them would have meant reporting neither until
 both were done.
+
+### Increment 5 scope
+
+The half of `plugin add` that fetches. Increment 4 decided whether a plugin is acceptable and
+had no way to obtain one; this obtains one, records what was approved, and still executes
+nothing.
+
+In `nostdb-spec`:
+
+- a new contract `plugin_install_version`, specified in `docs/PLUGIN_INSTALL.md`. The manifest
+  contract names the seven things an installation records and stops there, which is right —
+  it is the document a plugin *author* reads, and the record is written by the manager and
+  read later by the executor. Coupling the record's shape to the shape of the document an
+  author writes would make one unable to change without the other;
+- the two digests' exact computation, because a digest whose derivation is not written down
+  cannot be verified by a second implementation, and the whole point of recording one is that
+  somebody else can check it;
+- the archive limits and the path rules a fetched tree must satisfy, which `docs/PRD.md`
+  section 23.3 requires an installation to validate and nothing has specified;
+- the Engine range grammar. Section 2.2 of the manifest contract says a plugin declares the
+  Engine versions it works with "as a range" and never says what a range is;
+- register `PLUGIN_INCOMPATIBLE`, `PLUGIN_DIGEST_MISMATCH`, `PLUGIN_SOURCE_INVALID`, and
+  `PLUGIN_LIMIT_EXCEEDED`;
+- fixtures for records, ranges, and trees, none of which installs anything.
+
+In `nostdb-cli`:
+
+- fetch through the public `nostdb_core::provider::ProviderClient`. The command surface must
+  not bundle a GitHub implementation, and the provider protocol already has exactly the three
+  requests an install needs: resolve a ref to a commit, enumerate a tree, read an entry;
+- enforce the path rules and the archive limits over the enumerated tree **before** reading
+  any content, because a limit checked after the download is not a limit;
+- validate the manifest with increment 4's reader, and check its Engine range against this
+  build;
+- compute both digests, write the plugin's files and the install record, and preserve the
+  previous state when any of it fails;
+- `nostdb plugin add`, with the scope question section 23.4 requires.
+
+### Deferred out of increment 5
+
+- execution and the digest re-check in front of it, which is increment 6. The record exists so
+  that something can be refused later; nothing yet does the refusing;
+- `PLUGIN_REQUIRED`, which stays on the root's awaiting list. It belongs to an action that
+  needs a missing plugin, and no action needs one until the viewer in increment 7. Registering
+  it now would mean publishing a code no implementation can raise, which is the exact failure
+  `LINKED_DATABASE_READ_ONLY` recorded in Stage 6;
+- `plugin list` and `plugin remove`, refused by name rather than falling through to "unknown",
+  which is the treatment `link refresh` established.
+
+## Stage 11 increment 5: the half that fetches
+
+`nostdb plugin add` resolves a ref to a commit, enumerates the tree, refuses what is not a
+plugin, reads and checks the manifest, computes both digests, writes the files, and records what
+was approved. Nothing in it executes anything, and there is no path from the installing module to
+a process: no `Command`, no `spawn`, nothing that could reach one.
+
+### Recorded conflict: resolving a default branch
+
+Two published contracts disagree, and the disagreement is load-bearing rather than cosmetic.
+
+`docs/PLUGIN_MANIFEST.md` section 4, on a source with no ref:
+
+> With no `ref`, the manager resolves the default branch **once** and records the commit.
+
+`docs/PROVIDER_PROTOCOL.md` section 6, on the locator every retrieval request carries:
+
+> `ref` is required. An implementation MUST NOT default it to a branch name, because the
+> default branch of a repository can change and a locator is an identity.
+
+The manager's only retrieval path is the provider — the command surface must not bundle a GitHub
+implementation, and `nostdb-cli/AGENTS.md` forbids one by name. The provider protocol has no
+request that reports a default branch, and `nostdb-provider-github` refuses a ref-less locator
+with `PROVIDER_LOCATOR_INVALID`. So the manager is required to resolve something it has no way to
+ask about.
+
+Recorded rather than resolved, as the root contract requires, and the current valid behavior is
+unchanged: a source naming a ref installs end to end, and a source with no ref is refused by
+name with a message that says to name one. It is refused **before** a provider is demanded,
+because being told to install a provider first and then meeting this refusal anyway would waste
+somebody's afternoon.
+
+Two resolutions are available, and both belong to a contract owner rather than to this
+increment:
+
+1. **amend the provider protocol** so a default branch is askable — either a `resolve` that
+   accepts `?ref=HEAD`, which is a symbolic ref rather than a branch name and so does not
+   violate the letter of section 6, or a new request that reports the default branch and lets
+   the manager build a locator from the answer. This keeps the manifest contract's promise;
+2. **amend the manifest contract** to require a ref. This is the smaller change and the more
+   honest one for a *pinning* installer: section 4 exists so a plugin does not move underneath a
+   project, and asking for the ref up front makes what was installed visible in the command that
+   installed it.
+
+Option 2 is the narrower change and matches what the rest of this contract argues for. It is not
+taken here, because narrowing a published promise is not a decision an implementation increment
+gets to make.
+
+### A separate contract for the record
+
+`plugin_install_version`, specified in `docs/PLUGIN_INSTALL.md`. The manifest contract names the
+seven things an installation records and stops there, which is right: it is the document a plugin
+*author* reads, and the record is written by the manager and read later by the executor.
+
+Coupling them would mean a manager that wanted to record one more field could not do so without
+changing the document every author has already written — and an author's manifest would appear to
+need reissuing because a manager learned to remember something new.
+
+It is the eleventh specified contract, and the `nostdb-spec` tripwire that fails on a new one
+until its expectation is updated on purpose did exactly that.
+
+### Two digests, and why the derivation had to be written down
+
+The manifest digest covers the manifest's bytes **as received**, before parsing and without
+reserialization. Digesting a reserialized manifest would make a formatting change look like a
+content change and, worse, could make a content change invisible — two different documents can
+serialize identically once a reader has normalized them.
+
+The tree digest is `<path> LF <hex> LF` per accepted entry, in ascending byte order of path. Every
+part of that is a decision a second implementation has to make the same way:
+
+- **ascending byte order, not a locale collation.** A digest that depended on the installing
+  machine's locale would differ between two machines installing the same commit, and the
+  disagreement would look exactly like tampering;
+- **the manifest is included.** Excluding it would leave the manifest covered only by its own
+  digest, and an implementation comparing trees would report two installations identical when
+  their manifests differed;
+- **the path and not the mode.** A file's executable bit is not covered. That is written into the
+  contract rather than left to be discovered, because a reader who assumed otherwise would
+  believe a mode change was detectable.
+
+Recording only the tree digest would technically cover both, since the manifest is in the tree.
+Two are recorded because they answer different questions, and the refusal message says *which*
+one moved — whether the plugin asked for more, or merely became a different plugin.
+
+### The Engine range needed a grammar, because the contract never gave it one
+
+Section 2.2 of the manifest contract said a plugin declares the Engine versions it works with "as
+a range" and never said what a range is. An implementation reading `^0.1.0` would have had to
+pick an ecosystem's reading.
+
+The grammar is a conjunction of comparators over three-component versions, and deliberately
+nothing else: no caret, no tilde, no wildcard, no pre-release, no build metadata. Each of those
+is a shorthand whose meaning differs between ecosystems, so an author who wrote one expecting one
+reading would get another. A conjunction has one reading everywhere.
+
+A leading zero is refused, because a number with two spellings gives one range two spellings —
+and a manifest with two spellings of one range has two manifest digests.
+
+The split between the two codes is what the grammar buys: a range that does not parse is
+`PLUGIN_MANIFEST_INVALID`, because it is a malformed member somebody edits. A range that parses
+and excludes this build is `PLUGIN_INCOMPATIBLE`, because the manifest is correct and this is not
+the build it is for.
+
+### Limits pinned from both sides
+
+Five fixed limits: 4096 entries, 8 MiB per entry, 64 MiB per plugin, 1024 bytes per path, 32
+segments deep. Every one is checked from the **enumeration**, before a byte is downloaded, which
+is the only thing that makes a hostile source a refusal rather than a resource exhaustion.
+
+Each limit has a fixture one past it and a fixture sitting exactly on it. The second half is what
+makes the numbers normative: a suite with only the exceeding half would pass against a build whose
+limit was 64 rather than 4096, because a tree over 4096 entries is also over 64. The limits would
+have been advisory while appearing to be checked.
+
+They are fixed rather than configurable. A limit a project can raise is one an install can ask it
+to raise, and the request would arrive attached to the plugin that wants it.
+
+### What a refusal is honest about
+
+- **the provider's code passes through.** A host that could not be reached reports
+  `PROVIDER_SOURCE_UNAVAILABLE` and exit class 5, not a plugin failure. Relabelling it would name
+  the wrong layer, and a script that wanted to retry later needs to know which layer to wait on;
+- **no flag installs over a digest mismatch.** A commit is immutable, so the same commit yielding
+  different bytes means something between the host and this machine is not what it was. A user
+  cannot evaluate that question, and a flag that exists to be passed when a check fails is a check
+  nobody has;
+- **a different commit is not a mismatch.** That is somebody asking for a different version, and
+  the request names the commit it wants;
+- **a tree with one escaping path is refused whole.** Not skipped: whoever wrote that path meant
+  something by it, and installing the rest would install a plugin that is not the one the author
+  published, with nothing saying which parts are missing.
+
+### Consent asks where, not whether
+
+An explicit `plugin add` is authorization to install. What is asked is the scope, and only when
+the invocation did not say and somebody can answer.
+
+A non-interactive session takes project scope rather than refusing for want of an answer.
+Refusing would make every unattended install depend on a person being present, and the narrower
+of the two scopes is the safe one to choose without being told.
+
+Whether anybody can answer is decided in `lib.rs`, where the process streams are, and passed down
+as a fact. Everything below stays drivable by a test that supplies the answer itself — the same
+shape the REPL uses, and the reason the whole command surface is testable in process.
+
+`--scope` takes a value rather than being spelled `--project`. `--project` means a directory
+everywhere else on the surface, and one word meaning a scope here and a path there is the kind of
+thing people get wrong once and never trust again.
+
+### Tested over a scripted provider, and what that does not cover
+
+`Transport` is a trait, so the whole install runs against a recorded conversation: the request
+order, what is refused before anything is downloaded, both digests, the reinstall outcomes, and
+what the record ends up saying. No test reaches the network.
+
+What that does **not** cover is the process glue — starting the provider, wiring its pipes, and
+reading `NOSTDB_GITHUB_PROVIDER`. That is the same code path `link refresh` uses and is exercised
+there. It is named here rather than left implied, because a suite that covered the interesting
+part and skipped the boring part should say which part it skipped.
+
+The record this build writes is read back through `Record::parse` rather than trusted because
+this build wrote it. A writer that produced a document its own reader refuses would be two
+implementations of one contract, and the file is the one a later execution depends on.
+
+### Two defects this increment found
+
+**A provider was demanded before a source was judged.** The first version checked
+`NOSTDB_GITHUB_PROVIDER` before deciding whether the source could become a locator at all, so a
+ref-less source reported a missing provider. Somebody would have installed one and met the real
+refusal afterwards. The order is now: judge what is decidable locally, then reach for anything
+external.
+
+**Two commands had no help topic.** `every_command_has_a_help_topic` carried its own list of six
+command names, written when the surface had six commands and never extended — so a test whose
+name claimed completeness covered under half of the surface, and `nostdb help query` and
+`nostdb help sync` both reported `unknown command`. The list is now stated once and used by both
+help checks, and the two missing topics are written.
+
+That is the same failure shape as the Stage 10 repair recorded above, one level smaller: a check
+that was right about everything except its own scope.
+
+### Stage 11 increment 5 verification
+
+Passed on 2026-07-28 in `nostdb-spec` at `f0d16a2` and `nostdb-cli` at `e21b88c`.
+
+Rust command set clean in both children:
+
+- `cargo fmt --check`
+- `cargo check --all-targets --all-features`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test --all-targets --all-features` — 66 unit and 128 integration tests in the command
+  surface, 10 of them the install flow and 5 the new conformance suite; 63 tests in the
+  specification harness, 10 of them the new suite
+
+Fixtures published and gated, all reproducing their declared outcomes:
+
+| Suite | Fixtures | What it establishes |
+| --- | --- | --- |
+| `plugin-install/record/valid` | 3 | read, name-ordered, and every member present |
+| `plugin-install/record/invalid` | 10 | refused with the declared code, covering both record codes |
+| `plugin-install/range` | 8 | parses, and admits or excludes the declared engine version |
+| `plugin-install/range-invalid` | 8 | refused as a malformed manifest member |
+| `plugin-install/tree` | 19 | 7 accepted, 12 refused, with every limit pinned from both sides |
+
+Repository and workspace:
+
+- `./scripts/verify-repository.sh` in both children
+- `./scripts/verify-workspace.sh` in the root, which now runs `plugin_install_conformance` from
+  the superproject and reports the diagnostic ownership of all eight `nostdb-cli` codes
+- `git diff --check`
+
+Two workspace tripwires fired as designed and were resolved on purpose rather than worked around:
+
+| Tripwire | What it caught |
+| --- | --- |
+| `the_specified_contracts_are_exactly_those_that_have_been_authored` | a new specified contract, which must be acknowledged rather than appear |
+| the root's `awaiting_a_contract` list | `PLUGIN_INCOMPATIBLE` and `PLUGIN_DIGEST_MISMATCH` became registered and had to leave the deferral list, or it would rot into a record of what used to be missing |
+
+`PLUGIN_REQUIRED` stays deferred. It belongs to an action that needs a missing plugin, and no
+action needs one until the viewer in increment 7. Registering it now would publish a code no
+implementation can raise, which is the exact failure `LINKED_DATABASE_READ_ONLY` recorded in
+Stage 6.
 
 ### The sentence this Stage is organized around
 

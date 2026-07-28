@@ -315,8 +315,6 @@ ANALYZER_UNSUPPORTED
 ANALYSIS_PARTIAL
 AI_BUDGET_EXCEEDED
 PLUGIN_REQUIRED
-PLUGIN_INCOMPATIBLE
-PLUGIN_DIGEST_MISMATCH
 PROVIDER_AUTH_REQUIRED
 PROVIDER_PERMISSION_DENIED
 VIEW_CAPACITY_EXCEEDED
@@ -427,6 +425,11 @@ if [ -d nostdb-spec/fixtures ]; then
   # The plugin manifest is validated where the manager lives, so the fixtures are gated
   # there. Running them here is what makes the published set a gate rather than a document.
   run_conformance_suite nostdb-cli plugin_conformance
+
+  # The installation contract is a separate suite because it is a separate contract: the
+  # manifest is what an author writes and the record is what the manager writes, and the two
+  # versions move independently.
+  run_conformance_suite nostdb-cli plugin_install_conformance
 fi
 
 git diff --check
