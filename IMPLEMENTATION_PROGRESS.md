@@ -2,8 +2,9 @@
 
 Last updated: 2026-07-28
 
-Current stage: Stage 10 is `IN_PROGRESS` at increment 3. `skills` is connected, the action
-table is written, and a Skill can decide which `nostdb` to invoke.
+Current stage: Stage 10 is `IN_PROGRESS` at increment 4. Every AI-free action maps to the
+CLI command it invokes, and the table and the dispatcher are checked against each other.
+What remains is the two increments that involve a model.
 
 One thing Stage 9 built is unverified against reality: every test proves the provider behaves
 correctly against a *recorded* GitHub, and only a live run with a real credential proves the
@@ -1172,7 +1173,7 @@ first component in this project that is allowed to call a model.
 | 1 | this scope | DONE |
 | 2 | connect `skills`; the action table and its declared AI usage | DONE |
 | 3 | Engine resolution, and the version check that decides compatibility | DONE |
-| 4 | AI-free actions, each proving it calls the same Core command the CLI does | PENDING |
+| 4 | AI-free actions, each proving it calls the same Core command the CLI does | DONE |
 | 5 | the analysis packet in PRD 17.5, and the budget check before any call | PENDING |
 | 6 | natural-language read, write, and the ambiguous case | PENDING |
 
@@ -1242,6 +1243,34 @@ prohibition — the same mistake the provider's verifier made about `.nostdb` pa
 explaining a rule has to be able to write the rule down, and a check that forbids that is one
 people learn to work around. Twice is a pattern worth naming: a check written against a
 *string* will eventually fire on the text that explains why the string is forbidden.
+
+### Increment 4: one answer to what an action does
+
+Every AI-free action maps to the `nostdb` command it invokes. Not an equivalent command and
+not a reimplementation — two implementations of one action is two answers to one question,
+and which a user gets would depend on which surface they reached for.
+
+The dispatcher **prints** the command rather than running it. That makes the mapping
+testable with no Engine installed, and it means a caller can show a user exactly what will
+run before anything does — which is what a natural-language write is separately required to
+do, so building it here means that requirement is already satisfied when increment 6 needs
+it.
+
+An action needing a model is refused *specifically* rather than reported as unknown.
+Reporting it as unknown suggests a typo, when the truth is that it exists and needs
+something this path cannot supply.
+
+**The table and the dispatcher are checked against each other**, in both directions: a
+mapping with no row fails, and a row with no mapping fails. A table that drifted from the
+dispatcher would describe a Skill that does not exist, and a dispatcher with an undeclared
+action would be one nobody could budget for.
+
+The first version of that check counted `none` rows and was wrong. `build-nost` is the
+AI-free path of an **optional** row, and `optional` means precisely that the action completes
+without a model — so the dispatcher legitimately maps more than the `none` rows. Arithmetic
+over prose could not express that, and the bridge between the two vocabularies is now written
+out as a list. It is the third time this Stage that a check has been wrong in a way the thing
+it checked was not.
 
 ### What makes this Stage different from every one before it
 
