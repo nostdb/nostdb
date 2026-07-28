@@ -2,10 +2,10 @@
 
 Last updated: 2026-07-28
 
-Current stage: Stage 9 is `IN_PROGRESS`, with increments 1 through 4 done. The provider
-protocol is specified, the Engine can hold the conversation, and the provider canonicalizes
-a locator and knows how to ask GitHub for a commit, a tree, and a blob. Increment 5 is the
-concrete HTTP client and the request loop that joins the two halves.
+Current stage: Stage 9 is `IN_PROGRESS`, with increments 1 through 5 done. Both halves of
+the conversation exist and speak the same protocol; what is missing between them is one
+`Http` implementation. Increment 6 supplies it, along with the cache, `link refresh`, and
+remote federation.
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification, Engine, and command-surface repositories `nostdb-spec`,
@@ -1214,7 +1214,8 @@ product has, and the first that is not a local filesystem.
 | 2 | connect `nostdb-provider-github` as scaffolding, and the Core-side out-of-process client | DONE |
 | 3 | locator parsing and browser-URL normalization | DONE |
 | 4 | the HTTP boundary, ref-to-commit resolution, tree enumeration, and blob reading | DONE |
-| 5 | an HTTP client, the request loop, the content cache tie-in, `link refresh`, and read-only federation over a remote `.nostdb` | PENDING |
+| 5 | the request loop | DONE |
+| 6 | an HTTP client, the content cache tie-in, `link refresh`, and read-only federation over a remote `.nostdb` | PENDING |
 
 The contract comes first for the same reason it did in Stages 7 and 8: the provider is a
 separate executable, so the protocol between it and the Engine is the whole interface, and
@@ -1381,6 +1382,38 @@ still no HTTP client, and that is deliberate rather than pending.
 **Scope move.** The content cache tie-in moves to increment 5. It needs a real client to be
 worth anything — the point of a blob ID is to avoid a download, and there is nothing to
 avoid until something downloads.
+
+### Increment 5: the request loop, and a check that was wrong
+
+The provider serves the protocol. Both halves now exist and speak the same version, and what
+separates them is one `Http` implementation rather than any unwritten logic.
+
+- **every failure is a reply.** A provider that exited to signal one would leave the Engine
+  unable to tell a version mismatch from a crash;
+- **a session remembers which commit each snapshot refers to**, and refuses a snapshot it
+  did not resolve. Re-resolving a ref per request would let a branch move underneath a build
+  and produce a graph assembled from two states of one repository;
+- **a request carrying a secret instead of a name is refused.** A provider that accepted one
+  would make the Engine a place a credential had been, which is the arrangement passing a
+  name exists to prevent;
+- **a graph locator naming a repository root names no artifact.** Guessing at
+  `.nostdb/root.nostdb` would be inventing a path the user did not write.
+
+`sha2` is the second dependency, reviewed in the manifest. Hand-writing SHA-256 to avoid a
+crate the workspace already uses everywhere would trade a reviewed implementation for an
+unreviewed one, at a place where being wrong is silent.
+
+**A check this repository's own verifier got wrong.** It rejected any mention of a `.nostdb`
+path, and fired on a test fixture. That was not merely a noisy pattern: naming a `.nostdb`
+file is *exactly* what a graph locator does, and doing so is this provider's job in the
+`graph_store` role. A check that forbids the thing the component is for is one people learn
+to work around, so it now matches Engine API calls, which is what the boundary is actually
+about.
+
+**Scope split.** Increment 5 was scoped with the client, the cache, `link refresh`, and
+federation alongside the loop. Those are now increment 6. The loop is complete and gated on
+its own, and grouping four unrelated things behind one status would have meant reporting
+none of them until all of them were done.
 
 ### What section 16 pins down before any code
 
