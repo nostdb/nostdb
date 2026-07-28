@@ -2,10 +2,10 @@
 
 Last updated: 2026-07-28
 
-Current stage: Stage 9 is `IN_PROGRESS`, with increments 1 through 5 done. Both halves of
-the conversation exist and speak the same protocol; what is missing between them is one
-`Http` implementation. Increment 6 supplies it, along with the cache, `link refresh`, and
-remote federation.
+Current stage: Stage 9 is `IN_PROGRESS`, with increments 1 through 6 done. Both halves of
+the conversation exist, speak the same protocol, and are tested end to end against recorded
+responses. The one thing standing between this and a working provider is a single `Http`
+implementation. Increment 7 supplies it, with `link refresh` and remote federation.
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification, Engine, and command-surface repositories `nostdb-spec`,
@@ -1215,7 +1215,8 @@ product has, and the first that is not a local filesystem.
 | 3 | locator parsing and browser-URL normalization | DONE |
 | 4 | the HTTP boundary, ref-to-commit resolution, tree enumeration, and blob reading | DONE |
 | 5 | the request loop | DONE |
-| 6 | an HTTP client, the content cache tie-in, `link refresh`, and read-only federation over a remote `.nostdb` | PENDING |
+| 6 | the per-snapshot tree cache | DONE |
+| 7 | an HTTP client, `link refresh`, and read-only federation over a remote `.nostdb` | PENDING |
 
 The contract comes first for the same reason it did in Stages 7 and 8: the provider is a
 separate executable, so the protocol between it and the Engine is the whole interface, and
@@ -1414,6 +1415,37 @@ about.
 federation alongside the loop. Those are now increment 6. The loop is complete and gated on
 its own, and grouping four unrelated things behind one status would have meant reporting
 none of them until all of them were done.
+
+### Increment 6: listing a snapshot once
+
+Reading every file in a repository cost one tree request per file, which for a repository of
+any size is the difference between one API call and thousands. That was a note in the code
+rather than a decision, and it is now a decision.
+
+It is safe **precisely because a snapshot is an immutable commit**: the listing cannot go
+stale. Caching a *ref* would be a different thing entirely and is what section 16.2 forbids
+— the distinction is the whole reason resolution happens once and everything afterwards
+names a commit.
+
+A failed listing is not remembered. A rate limit or an unreachable host is a fact about this
+moment, and caching it would make one bad minute poison a session that could otherwise
+recover.
+
+Both halves have a test that **counts requests**. The existing tests passed with or without
+the cache, which is exactly the failure mode a cache test exists to avoid: a cache nothing
+measures is a claim, not a behavior.
+
+### Where Stage 9 stands
+
+Everything except one `Http` implementation. The protocol is specified and gated by
+fixtures, the Engine speaks it, the provider serves it, locators canonicalize, and the
+GitHub API layer resolves, enumerates, and reads — 40 tests, none of which touches a
+network.
+
+That is the shape the transport trait was chosen for. What remains is genuinely one file:
+a client behind `Http`, and then `link refresh` and federation on top of a provider that
+already works. It is also the increment that finally needs the live conformance run and the
+credential that the scope has named as unauthorized since it was written.
 
 ### What section 16 pins down before any code
 
