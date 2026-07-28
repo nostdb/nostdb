@@ -1158,6 +1158,77 @@ nothing.
 - `build`, `plan`, `apply`, and `sync`, which need the analysis pipeline and link resolution;
 - `catalog`, `server`, `plugin`, and `view`, which belong to Stages 8, 11, and 12.
 
+## Stage 9 scope
+
+**Not started.** The scope below is recorded ahead of the work, and Stage 9 stays `PENDING`
+until `nostdb-provider-github` is created and pinned.
+
+The Stages 7 through 12 grant covers creating it, and Stage 8 re-confirmed that grant for
+`nostdb-server` before creating it. Following that precedent rather than reading the standing
+grant as sufficient on its own, this asks for the same re-confirmation. Recording the scope
+first costs nothing and creates nothing; it also means the authorization is being asked for
+against a stated plan rather than in the abstract.
+
+Stage 9 builds the out-of-process GitHub provider: the second source of graph data the
+product has, and the first that is not a local filesystem.
+
+| Increment | Content | Status |
+| --- | --- | --- |
+| 1 | the `provider_protocol_version` contract and the `github://` locator grammar, with fixtures | PENDING |
+| 2 | connect `nostdb-provider-github` as scaffolding, and the Core-side out-of-process client | PENDING |
+| 3 | locator parsing, browser-URL normalization, and ref-to-commit resolution | PENDING |
+| 4 | tree enumeration, blob reading, and the content cache tie-in | PENDING |
+| 5 | `link refresh`, and read-only federation over a remote `.nostdb` | PENDING |
+
+The contract comes first for the same reason it did in Stages 7 and 8: the provider is a
+separate executable, so the protocol between it and the Engine is the whole interface, and
+writing the implementation first would make the contract a description of whatever got
+built.
+
+### The dependency this Stage has that no earlier Stage had
+
+Every Stage so far could be verified offline. This one cannot be verified end to end without
+**network access to GitHub and a credential**, and the root contract is explicit that a
+Stage depending on credentials leaves them to be requested rather than invented.
+
+So the provider is built against a transport abstraction, and every increment above is
+testable against recorded fixtures with no network and no token. That is not a workaround
+for the missing authority — it is the design the contract already implies. A provider whose
+correctness can only be demonstrated by reaching a live third-party service is one nobody
+can test in CI, and section 16.3 requires behavior on a *cached* snapshot that a live-only
+test could not exercise at all.
+
+What still needs authorization, and is not part of any increment above:
+
+- a live conformance run against a real repository, with a real token;
+- anything that would place a token in this workspace. Section 15.3 already forbids it
+  reaching settings, graph files, caches, diagnostics, or command output, and nothing here
+  changes that.
+
+### What section 16 pins down before any code
+
+- **the locator is `github://<owner>/<repository>/<path>?ref=<git-ref>`.** Owner and
+  repository canonicalize case-insensitively; path and ref preserve case. The provider may
+  accept a browser URL but must normalize before storing or comparing one, because a locator
+  is a link's identity and two spellings of one identity is two links;
+- **a branch or tag resolves to one immutable commit before anything is read.** The
+  configured locator stays the identity; the resolved commit is operational metadata. A
+  query must never silently advance a branch, which is precisely why `link refresh` exists
+  and why it could not be built before this Stage;
+- **the provider retrieves bytes and metadata, and only Core interprets them.** A provider
+  that parsed `.nost` would be a second parser, which the ownership boundaries forbid;
+- **an unavailable source leaves the link declared.** A cached immutable snapshot may serve
+  a query and must be reported as cached; with no valid snapshot the link is declared and
+  unavailable, which is the behavior `link check` already reports for a local one.
+
+### Deferred out of Stage 9
+
+- every other remote host. Section 15.2 defers SSH, object stores, and databases, and
+  building a second provider before the first one's protocol has been used once would be
+  designing an abstraction against a single example;
+- `GraphStoreProvider` write support. The MVP retrieves an existing `.nostdb` read-only;
+- the AI enrichment that Stage 10 layers on top of remote source.
+
 ## Stage 8 scope
 
 Stage 8 is taken in four increments, for the same reason Stages 5 through 7 were.
