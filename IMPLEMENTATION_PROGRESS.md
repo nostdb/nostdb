@@ -2,10 +2,9 @@
 
 Last updated: 2026-07-28
 
-Current stage: Stage 9 is `IN_PROGRESS`, with increments 1 and 2 done. The provider protocol
-is specified, `nostdb-provider-github` is connected as scaffolding, and the Engine can hold
-the conversation. Increment 3 is the locator and snapshot resolution the provider itself
-must implement.
+Current stage: Stage 9 is `IN_PROGRESS`, with increments 1 through 3 done. The provider
+protocol is specified, the Engine can hold the conversation, and the provider canonicalizes
+a `github://` locator. Increment 4 is everything that needs an HTTP transport.
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification, Engine, and command-surface repositories `nostdb-spec`,
@@ -1212,8 +1211,8 @@ product has, and the first that is not a local filesystem.
 | --- | --- | --- |
 | 1 | the `provider_protocol_version` contract and the `github://` locator grammar, with fixtures | DONE |
 | 2 | connect `nostdb-provider-github` as scaffolding, and the Core-side out-of-process client | DONE |
-| 3 | locator parsing, browser-URL normalization, and ref-to-commit resolution | PENDING |
-| 4 | tree enumeration, blob reading, and the content cache tie-in | PENDING |
+| 3 | locator parsing and browser-URL normalization | DONE |
+| 4 | the HTTP transport, ref-to-commit resolution, tree enumeration, blob reading, and the content cache tie-in | PENDING |
 | 5 | `link refresh`, and read-only federation over a remote `.nostdb` | PENDING |
 
 The contract comes first for the same reason it did in Stages 7 and 8: the provider is a
@@ -1302,6 +1301,43 @@ nothing else. The contract requires an unavailable source to keep its declaratio
 reachable partial results, but a protocol violation is a defect in the provider rather than
 a fact about the host — treating the two alike would hide a broken provider behind a
 warning. A rejected credential is likewise not a source that happens to be down.
+
+### Increment 3: the locator, and a scope move
+
+The provider canonicalizes a `github://` locator, and the twelve published fixtures are now
+gated by the workspace verifier rather than only by the child repository — a suite only the
+child runs is one a workspace-level change can break without anything noticing.
+
+Everything in the implementation follows from one fact: **a locator is a link's identity**.
+Two spellings of one repository must produce one locator, or the graph holds two links where
+the user declared one and neither is wrong enough to look wrong.
+
+- owner and repository are lowered, because GitHub treats them case-insensitively;
+- path and ref are left exactly as written, because a repository's paths are case-sensitive
+  and so are Git refs. Lowering a path would silently rename a file;
+- percent-encoding is preserved rather than decoded, since decoding would make two distinct
+  paths compare equal;
+- a browser URL is accepted and normalized rather than refused — somebody pasting one has
+  named a real repository — and never stored in that form, which is the half that would give
+  one repository two identities;
+- **no ref is ever invented**, including for a bare browser URL. A default branch can
+  change, and an identity that changes underneath the thing it identifies is not an
+  identity;
+- a locator carrying a credential is refused rather than stripped. Somebody who wrote one
+  meant to use it, and dropping it quietly would turn an authentication mistake into a
+  confusing "not found".
+
+The conformance suite checks each accepted locator's **declared canonical form**, not merely
+that parsing succeeded. An implementation that accepted a browser URL without normalizing it
+would pass a parse-only suite while getting the identity wrong, which is exactly the defect
+the fixtures exist to catch.
+
+**Scope move.** Increment 3 was scoped with ref-to-commit resolution in it, and that has
+moved to increment 4. Resolution is the first thing here that needs an HTTP transport, and
+so is the enumeration increment 4 already contains; splitting the transport across two
+increments would mean designing it against one caller and then discovering the second. The
+locator half is complete and independently gated, which is what makes the move a
+reorganization rather than a deferral.
 
 ### What section 16 pins down before any code
 

@@ -395,6 +395,12 @@ if [ -d nostdb-spec/fixtures ]; then
 
   run_conformance_suite nostdb-server catalog_conformance
   run_conformance_suite nostdb-server server_conformance
+
+  # The provider owns the locator, so the locator fixtures are gated where they are
+  # implemented rather than in the Engine. Running them here is what makes the published
+  # set a gate: a suite only the child repository runs is one a workspace-level change can
+  # break without anything noticing.
+  run_conformance_suite nostdb-provider-github locator_conformance
 fi
 
 git diff --check
