@@ -36,6 +36,11 @@ jobs:
         run: ./scripts/verify-workspace.sh
 
       - name: Verify every connected child repository
+        # The published fixtures are exported so a child that consumes them checks against the
+        # pinned set rather than skipping. A child cloned on its own finds them as a sibling or
+        # skips and says so; here they are always present, so a skip would be a gap.
+        env:
+          NOSTDB_SPEC_FIXTURES: ${{ github.workspace }}/nostdb-spec/fixtures
         run: |
           git submodule foreach --recursive '
             if [ -x scripts/verify-repository.sh ]; then

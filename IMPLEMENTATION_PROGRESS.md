@@ -1420,25 +1420,34 @@ Data is embedded in the page rather than fetched from the sibling file, because 
 `file://` cannot fetch its sibling. `view.data.bin` is still written, because the manager removes its
 temporary artifact and a page that wanted to re-read the data would otherwise find nothing.
 
-### What is unverified, and the rule that makes it so
+### Resolved: the rule that made the viewer untestable
 
-**No test in this workspace has ever executed the reference viewer.** `plugins/AGENTS.md` says
-"Never execute a plugin's code here", and that rule is not relaxed for the one plugin the repository
-happens to own: a rule that holds except for the code you wrote yourself is not a rule.
+The increment first shipped with the viewer's decoder unverified by any suite, because
+`plugins/AGENTS.md` said "Never execute a plugin's code here" — and that rule was not relaxed for the
+one plugin the repository owns, on the grounds that a rule holding except for the code you wrote
+yourself is not a rule. The gap was recorded and put to the user rather than worked around.
 
-So its verifier checks that the entrypoint is committed executable, names an interpreter, and parses.
-Its decoder is otherwise unverified by any suite.
+The user selected narrowing the rule. It now forbids **installing** a plugin and **executing an
+installed one**, while permitting a reference plugin's own suite to run the code in its own
+repository against fixtures it was given.
 
-What stands in for it is that the format has **two independent decoders that are** tested — one in the
-specification harness and one in `nostdb-cli` — both reading the same published fixtures. The viewer's
-decoder implements the same twenty-odd rules; whether it implements them correctly is not something
-this workspace currently proves.
+That is what the rule was protecting all along. Installation must not execute a stranger's code; an
+author testing their own is a different act, where nothing is installed, nothing is fetched, and what
+runs is code the repository authored and can read. A reference nobody can test is one whose
+correctness is a claim rather than a result.
 
-I ran the handshake by hand once to confirm the executable starts and answers. That is a check, not a
-test, and it is recorded as one.
+`reference/view-webgpu/test/viewer.test.mjs` now runs the viewer over all 21 published containers:
+each accepted one decoded to the counts its expectation declares, each rejected one refused with the
+declared code, and every refusal leaving no page behind. Plus the protocol cases that need no
+fixtures, a digest that does not match, and a media type this build does not read — 69 checks.
 
-That rule is worth a decision rather than a workaround, and it is put to the user below rather than
-narrowed here.
+So the format has **three** independently tested decoders reading the same published fixtures: the
+specification harness, `nostdb-cli`, and the viewer itself. The third is the one a browser's data
+actually passes through.
+
+The fixtures reach it as a sibling inside the superproject, and root CI exports
+`NOSTDB_SPEC_FIXTURES` for the child verifiers so a skip there would be a gap rather than a pass.
+Cloned on its own the suite skips the container half and says so.
 
 ### One repair root CI found, in code this increment did not touch
 
