@@ -11,7 +11,7 @@ workspace. Runtime implementation does not belong in the root repository.
 ## Current status
 
 The root workspace is initialized, and `nostdb-spec`, `nostdb-core`,
-`nostdb-cli`, `nostdb-server`, `nostdb-provider-github`, `skills`, `plugins`, and
+`nostdb-cli`, `nostdb-server`, `nostdb-provider-github`, `skills`, `plugins`,
 `nostdb-distribution`, and `homebrew-tap` are connected as submodules pinned to exact
 commits — every child the topology names. No legacy runtime code has been copied into
 this repository.
@@ -25,8 +25,9 @@ openCypher subset including writes and explicit transactions. See
 
 `nostdb-cli` provides `help`, `init`, `check`, `convert`, `export`, `query` and its
 REPL, `link`, `plan`, `build`, `apply`, `sync`, `catalog`, `server`, and
-`--version`, with the exit classes the product contract fixes. `link refresh` waits for the GitHub provider,
-because a local link has no snapshot to advance.
+`--version`, with the exit classes the product contract fixes. `link refresh` advances a
+remote snapshot through the GitHub provider; a project whose links are all local
+launches no provider, because a local link is read live and has nothing to advance.
 
 `nostdb-server` is the per-user local daemon. It holds the named database catalog,
 the local endpoint, the lock that keeps one instance per user, and sessions that

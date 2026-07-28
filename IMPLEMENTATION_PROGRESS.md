@@ -23,16 +23,21 @@ correctly against a *recorded* GitHub, and only a live run with a real credentia
 recording is what GitHub actually sends. That run is named in the Stage 9 scope as needing
 separate authorization, and it still does.
 
-Current milestone: The clean-slate root workspace is initialized, and the
-specification, Engine, and command-surface repositories `nostdb-spec`,
-`nostdb-core`, and `nostdb-cli` are connected as exact-commit submodules in the
-`nostdb` GitHub organization, joined now by `nostdb-server` as scaffolding. Root
-and child CI verify the pinned commit set. A configured project can be analyzed,
-built, queried, linked, synchronized, and converted from the command line with no
-daemon running, which is the boundary the daemon must not erase: it manages named
-databases and never becomes a requirement for a path. Each remaining child
-repository is a named dependency of the Stage that first needs it rather than a
-blocker on all implementation.
+Current milestone: every child repository the normative layout names is connected as an
+exact-commit submodule in the `nostdb` GitHub organization, and root and child CI verify the
+pinned commit set. Thirteen of the fourteen registered contracts are published with conformance
+suites an implementation can fail against; `credentials_version` is the one still deferred, and
+nothing has needed it because a credential is referenced by name and never stored.
+
+A configured project can be analyzed, built, queried, linked, synchronized, and converted from
+the command line with no daemon running. That is the boundary every later Stage had to avoid
+erasing: the daemon manages named databases and never becomes a requirement for a path, the
+provider is reached out of process, and a plugin is neither.
+
+This paragraph described the workspace as of Stage 8 increment 1 until 0.1.0 had already
+shipped. It said `nostdb-server` was scaffolding and that children remained unconnected, both of
+which stopped being true several Stages earlier — a reminder that the line above it was kept
+current while the paragraph under it was not.
 
 ## Authority
 
