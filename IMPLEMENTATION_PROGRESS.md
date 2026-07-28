@@ -2,9 +2,13 @@
 
 Last updated: 2026-07-28
 
-Current stage: Stage 10 is `IN_PROGRESS` at increment 5. Everything up to the moment of a
-model call is built: the packet, the plan, and the gate in front of it. Increment 6 is the
-natural-language surface, which is the only part left that involves one.
+Current stage: none is `IN_PROGRESS`. Stage 10 closed at increment 6. Stage 11 stays
+`PENDING` until `plugins` is created and pinned; the Stages 7 through 12 grant covers it.
+
+Nothing in Stage 10 has ever called a model, and that is the design rather than a gap: what
+a model returns cannot be pinned by a fixture, so everything testable is the surface around
+the call. A live run with a provider and a credential remains unauthorized, and is the only
+thing that would show whether a model's proposals are any good.
 
 One thing Stage 9 built is unverified against reality: every test proves the provider behaves
 correctly against a *recorded* GitHub, and only a live run with a real credential proves the
@@ -42,7 +46,7 @@ requirements.
 | 7 | DONE | CLI, REPL, conversion, and link management | Stage 6, plus connected `nostdb-cli` |
 | 8 | DONE | Per-user local daemon | Stage 7, plus connected `nostdb-server` |
 | 9 | DONE | GitHub provider | Stage 7, plus connected `nostdb-provider-github` |
-| 10 | IN_PROGRESS | Skills and AI enrichment workflow | Stages 7 and 9, plus connected `skills` |
+| 10 | DONE | Skills and AI enrichment workflow | Stages 7 and 9, plus connected `skills` |
 | 11 | PENDING | Plugin manager and WebGPU reference viewer | Stage 7, plus connected `plugins` |
 | 12 | PENDING | npm, Homebrew, and GitHub distribution gates | Stages 8 through 11, plus connected `nostdb-distribution` and `homebrew-tap` |
 
@@ -1175,7 +1179,7 @@ first component in this project that is allowed to call a model.
 | 3 | Engine resolution, and the version check that decides compatibility | DONE |
 | 4 | AI-free actions, each proving it calls the same Core command the CLI does | DONE |
 | 5 | the analysis packet in PRD 17.5, and the budget check before any call | DONE |
-| 6 | natural-language read, write, and the ambiguous case | PENDING |
+| 6 | natural-language read, write, and the ambiguous case | DONE |
 
 ### Authorized scope
 
@@ -1317,6 +1321,54 @@ The fix was to state `ai_mode` in the plan rather than have the Skill infer it f
 estimate — a caller deciding whether enrichment may start has to tell "nothing to do" from
 "refused", and both produce zero. The test now runs against a real Engine when one is on the
 path, which is what stops this returning.
+
+### Increment 6: the statement decides, not the label
+
+A model produces a proposal — what kind of request it thinks this was, and the openCypher it
+generated. The Skill applies policy to that proposal, and the policy is the part that can be
+tested.
+
+**The safety property is that the statement decides.** A model that mislabels a
+`DETACH DELETE` as a read would otherwise have it executed with no confirmation, and the
+label is the one part of a proposal that costs nothing to get wrong. So the statement is
+inspected, and a write clause makes it a write however it was announced. Three tests exercise
+exactly that: a `DELETE`, a `SET`, and a `MERGE`, each announced as a read, each still
+waiting.
+
+String literals are stripped first, so a statement returning the text `'DELETE'` is still a
+read. Without that the conservative rule would be unusable, and a rule people cannot live
+with is one they turn off.
+
+Every procedure call is treated as a write, because this cannot tell which ones write. Being
+asked to confirm a read is a smaller cost than a write running unconfirmed.
+
+**Ambiguity is not resolved by confirmation.** Confirming a request nobody has stated
+precisely is confirming the Skill's guess at it, which is the failure that makes a
+natural-language surface untrustworthy rather than merely wrong.
+
+A proposal that contradicts itself — claiming a write over a statement that writes nothing —
+is refused rather than downgraded. Running it would mean deciding the model was wrong about
+its own intent, which is not a decision a gate is entitled to make.
+
+**The clause list is tied to the Engine's.** The two live in different repositories and
+cannot import each other, so a test exercises every clause the Engine's query subset treats
+as a write. One added there and not here would let a write run unconfirmed, which is the
+failure the whole file exists to prevent.
+
+### Where Stage 10 ended
+
+Six increments: the action table, Engine resolution, the AI-free dispatcher, the analysis
+packet, the budget gate, and the natural-language gate. Four test suites, none of which
+calls a model.
+
+That is the design and not a gap. What a model returns cannot be pinned by a fixture, so
+everything testable is the surface *around* the call — which action is AI-free and provably
+identical to its CLI equivalent, what a packet may contain, what the budget decides, and what
+happens to a proposal before anything runs. A Stage that tested only the call would have
+tested almost nothing.
+
+**What is unproven** is whether a model's proposals are any good, and no amount of work here
+answers that. It needs a provider, a credential, and a live run, and none is authorized.
 
 ### What makes this Stage different from every one before it
 
