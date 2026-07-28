@@ -2,8 +2,7 @@
 
 Last updated: 2026-07-28
 
-Current stage: none is `IN_PROGRESS`. Stage 9 closed at increment 10. Stage 10 stays
-`PENDING` until `skills` is created and pinned; the Stages 7 through 12 grant covers it.
+Current stage: Stage 10 is `IN_PROGRESS` at increment 1, which records the scope below.
 
 One thing Stage 9 built is unverified against reality: every test proves the provider behaves
 correctly against a *recorded* GitHub, and only a live run with a real credential proves the
@@ -41,7 +40,7 @@ requirements.
 | 7 | DONE | CLI, REPL, conversion, and link management | Stage 6, plus connected `nostdb-cli` |
 | 8 | DONE | Per-user local daemon | Stage 7, plus connected `nostdb-server` |
 | 9 | DONE | GitHub provider | Stage 7, plus connected `nostdb-provider-github` |
-| 10 | PENDING | Skills and AI enrichment workflow | Stages 7 and 9, plus connected `skills` |
+| 10 | IN_PROGRESS | Skills and AI enrichment workflow | Stages 7 and 9, plus connected `skills` |
 | 11 | PENDING | Plugin manager and WebGPU reference viewer | Stage 7, plus connected `plugins` |
 | 12 | PENDING | npm, Homebrew, and GitHub distribution gates | Stages 8 through 11, plus connected `nostdb-distribution` and `homebrew-tap` |
 
@@ -1162,6 +1161,65 @@ nothing.
 - `query` and every output format, which need the result envelope contract;
 - `build`, `plan`, `apply`, and `sync`, which need the analysis pipeline and link resolution;
 - `catalog`, `server`, `plugin`, and `view`, which belong to Stages 8, 11, and 12.
+
+## Stage 10 scope
+
+Stage 10 builds the Agent Skill: the AI-capable extension of the command surface, and the
+first component in this project that is allowed to call a model.
+
+| Increment | Content | Status |
+| --- | --- | --- |
+| 1 | this scope | DONE |
+| 2 | connect `skills`; the action table and its declared AI usage | PENDING |
+| 3 | Engine resolution, and the version check that decides compatibility | PENDING |
+| 4 | AI-free actions, each proving it calls the same Core command the CLI does | PENDING |
+| 5 | the analysis packet in PRD 17.5, and the budget check before any call | PENDING |
+| 6 | natural-language read, write, and the ambiguous case | PENDING |
+
+### What makes this Stage different from every one before it
+
+Nine Stages have built things that are deterministic: the same input produces the same
+output, and a test can assert it. This one is not that, and the contract's response is to
+constrain *when* a model is consulted rather than what it says.
+
+- **every action declares its AI requirement.** `AiUsage::None`, `Optional`, or `Required`
+  is part of an action's identity, not a runtime discovery. An action that could quietly
+  become AI-requiring is one nobody can budget for;
+- **an AI-free action must call the same Core command the CLI calls.** The Skill is not a
+  second implementation, and the root contract requires fixtures proving it. That is the
+  one part of this Stage that *is* deterministic, and it is where the tests go;
+- **no call starts before a visible plan and a budget check.** Stage 7 built the plan and
+  the check; this Stage is where something finally has to pass through them.
+
+### Three refusals the contract states outright
+
+- **a natural-language write shows its exact scope and waits.** Generating the operation is
+  not permission to run it;
+- **an ambiguous request asks and does not execute.** Guessing which of two readings was
+  meant is the failure mode that makes a natural-language surface untrustworthy, and one
+  wrong guess costs more confidence than ten clarifying questions;
+- **no unpinned `latest` fallback for a state-changing non-interactive action.** A version
+  resolved at run time is a version nobody reviewed.
+
+### What this Stage cannot verify, and what that means for its shape
+
+The same problem Stage 9 had, one step further. Stage 9 could at least record what GitHub
+sent; a model's output is not reproducible even in principle, so no fixture can pin it.
+
+So the testable surface has to be everything *around* the call: which actions are AI-free
+and provably identical to their CLI equivalents, what a packet contains, what the budget
+check decides, and that a write refuses without confirmation. The call itself is the one
+part left, and a Stage that tested only that would have tested almost nothing.
+
+An AI provider and its credential are not authorized, and this scope does not assume them.
+
+### Deferred out of Stage 10
+
+- the plugin surface `/nostdb plugin add` names, which is Stage 11;
+- the viewer `/nostdb view` names, which is Stage 11;
+- distribution, which is what makes Engine resolution find anything at all, and is Stage 12.
+  Until then resolution is testable against a fake `nostdb` on the path, which is enough to
+  prove the *order* is right.
 
 ## Stage 9 scope
 
