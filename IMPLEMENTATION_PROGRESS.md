@@ -1483,7 +1483,7 @@ The last Stage, and the one that makes every earlier one reachable by somebody w
 | Increment | Content | Status |
 | --- | --- | --- |
 | 1 | the version report, completed | DONE |
-| 2 | connect `nostdb-distribution`; the npm launcher, platform resolution, and artifact checksums | PENDING |
+| 2 | connect `nostdb-distribution`; the npm launcher, platform resolution, and artifact checksums | DONE |
 | 3 | connect `homebrew-tap`; the formula and its checksum verification | PENDING |
 | 4 | release assembly, published checksums, and the source-install route | PENDING |
 
@@ -1575,6 +1575,100 @@ still runs it.
 
 Recorded as an isolation change rather than a fix, because that is what it is. A test moved to where
 it can run is not a bug closed, and the next red run is the one that will say what the bug was.
+
+### Recorded gap: neither distribution repository has a license
+
+`docs/PRD.md` section 33 lists the license for every clean-slate repository and names neither
+`nostdb-distribution` nor `homebrew-tap`. Every repository must carry its own license and the
+workspace verifier checks that it does, so the two cannot be created without one.
+
+The PRD's own pattern is unambiguous about which tier each thing is in: SSPL-1.0 for the three
+repositories that **are** the product — Core, the CLI, the daemon — and Apache-2.0 for everything at
+the edge that a third party should be able to fork and reimplement: the specification, the Skills, a
+future thin adapter, and provider and plugin schemas and drivers.
+
+A launcher and a formula are edges by exactly that logic, and there is a concrete reason beyond
+pattern-matching. An npm package that *installs* SSPL binaries is not itself the SSPL work, and
+putting a copyleft licence on a launcher would make packaging NostDB for a distribution or a mirror
+legally fraught for no benefit — while the entire purpose of a launcher is that people install
+through it.
+
+So both carry **Apache-2.0**, with the reasoning above rather than as an assumption. `docs/PRD.md` is
+not edited: it is the approved contract and Stage 0 verification diffs it against an approved source.
+
+This is reversible at the cost of one commit for as long as nothing is published, and nothing is.
+Overruling it is the user's call and is cheap until the first release.
+
+## Stage 12 increment 2: the launcher
+
+`nostdb-distribution` is created, connected, and pinned — the eighth child, and the last one the
+Stage table names besides the tap. Apache-2.0, for the reason recorded above.
+
+### What a launcher is, and the one thing it must not become
+
+It resolves this platform to a published release target, verifies the installed artifact against
+checksums the package itself ships, and executes it with the arguments untouched and the exit code
+unchanged.
+
+`docs/PRD.md` section 25.1 says outright that it does not reimplement Core in JavaScript. That is the
+prohibition worth enforcing rather than trusting, because a launcher is exactly where a convenience
+reimplementation would appear: reading a `.nost` to answer a question without starting the Engine
+looks like an optimization right up until two implementations disagree. The verifier searches the
+launcher and its library for the names such a thing would have.
+
+It also does not interpret arguments. Everything after the program name is forwarded and the native
+exit code is reported unchanged, because section 25.3 requires every install route to report
+compatible `nostdb --version --json` data — and the only way to be sure of that is to not be in the
+way. A launcher that answered `--version` itself would be reporting on the launcher.
+
+### Three decisions about verification
+
+- **the checksums ship inside the package.** An artifact comes from a release and is checked against a
+  digest that travelled in the npm tarball, so somebody who can serve a substituted artifact cannot
+  also serve the digest that would accept it. A checksum fetched from beside the artifact verifies
+  that the file arrived intact, which is not the question worth asking;
+- **verification happens on every run, not only at install.** An artifact replaced after installation
+  is precisely the case an install-time check cannot see. The cost is one digest per invocation;
+- **a truncation is reported as a truncation.** The length is checked before the digest, because
+  reporting "the digest does not match" for a half-downloaded file sends somebody looking for
+  tampering.
+
+A digest mismatch is refused and never retried into acceptance. An artifact that is not the one
+recorded is not one a retry makes right.
+
+### Resolution is a table, not a computation
+
+Six targets, keyed by what Node reports before any native code has run — which is the entire
+situation a launcher is in. A computed triple would name an artifact nobody built, and the failure
+would arrive as a download that 404s rather than as a refusal that lists what exists.
+
+An unpublished platform is refused by name, with the published targets and the source-install route
+section 25.3 publishes. Falling back to the nearest target would run a binary built for another
+machine, and that fails somewhere unrelated to the cause.
+
+### What is tested, and the state the package is actually in
+
+Section 25.1 requires platform resolution and artifact checksums to be tested "for every supported
+release target", and both are testable with no network and no release: one is a table, and the other
+is a digest over bytes the suite writes itself. 58 checks.
+
+The launcher's behaviour **with no artifact present** is tested too, because that is the state the
+package is in: nothing is published, so `checksums.json` records nothing. It refuses by name, says
+what is missing and how to get it, and writes nothing to stdout. Inventing a digest for an artifact
+nobody has built would have been a value nobody could reproduce.
+
+No test publishes anything and no test reaches the network. A suite that reached a registry would be
+testing the registry.
+
+### A credential limit worth recording
+
+The first push was refused: the OAuth token this session holds lacks the `workflow` scope, so it
+cannot create a file under `.github/workflows/`. The push went through the SSH host alias the root
+already uses, which is how every other child was pushed.
+
+Recorded because the next person to create a child repository will hit it, and the diagnostic —
+"refusing to allow an OAuth App to create or update workflow" — does not say that a different remote
+would work.
 
 ### Deferred out of Stage 12 until authorized
 

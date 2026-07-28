@@ -19,3 +19,6 @@
 [submodule "plugins"]
 	path = plugins
 	url = https://github.com/nostdb/plugins.git
+[submodule "nostdb-distribution"]
+	path = nostdb-distribution
+	url = https://github.com/nostdb/nostdb-distribution.git

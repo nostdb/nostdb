@@ -42,11 +42,11 @@ Connected and pinned to an exact commit:
 - `nostdb-provider-github/`
 - `skills/`
 - `plugins/`
+- `nostdb-distribution/`
 
 Not connected. Each is a named dependency of the Stage that first needs it, and
 creating it still requires explicit authorization at that time:
 
-- `nostdb-distribution/`
 - `homebrew-tap/`
 
 `.gitmodules` records read-only HTTPS URLs so that the documented recursive
@@ -144,6 +144,13 @@ rather than assumed.
 
 - `nostdb-core`, `nostdb-cli`, `nostdb-server`: SSPL-1.0, described as
   source-available.
+- `nostdb-distribution` and `homebrew-tap`: Apache-2.0. `docs/PRD.md` section 33
+  names a licence for every other repository and names neither of these, so the
+  reasoning is recorded in `IMPLEMENTATION_PROGRESS.md` under Stage 12 rather than
+  assumed. A launcher and a formula that *install* source-available binaries are not
+  themselves that work, and a copyleft licence on either would make packaging NostDB
+  for a distribution or a mirror needlessly fraught — while the whole purpose of both
+  is that people install through them.
 - `nostdb-spec` executable grammar and fixtures: Apache-2.0.
 - `skills` and a future thin `nostdb-mcp`: Apache-2.0.
 - provider/plugin extension schemas and future drivers: Apache-2.0.

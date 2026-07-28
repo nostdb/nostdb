@@ -11,8 +11,8 @@ workspace. Runtime implementation does not belong in the root repository.
 ## Current status
 
 The root workspace is initialized, and `nostdb-spec`, `nostdb-core`,
-`nostdb-cli`, `nostdb-server`, `nostdb-provider-github`, `skills`, and `plugins`
-are connected as submodules pinned to exact commits. No legacy runtime code has
+`nostdb-cli`, `nostdb-server`, `nostdb-provider-github`, `skills`, `plugins`, and
+`nostdb-distribution` are connected as submodules pinned to exact commits. No legacy runtime code has
 been copied into this repository.
 
 `nostdb-spec` publishes the `.nost` language, `.nostdb` container, and query
@@ -38,8 +38,13 @@ Agent Skills, installable on their own with `npx skills add nostdb/skills`.
 `plugins` owns the plugin manifest schema and the reference plugins; the only
 plugin manager is in `nostdb-cli`.
 
-The remaining two repositories, `nostdb-distribution` and `homebrew-tap`, will be
-created and connected by the Stage that first needs each one.
+`nostdb-distribution` publishes the unscoped `nostdb` npm package: a thin launcher
+that resolves this platform to a released artifact, verifies it against checksums the
+package itself ships, and executes it. Nothing is published yet, so the launcher
+refuses by name and says what is missing.
+
+The remaining repository, `homebrew-tap`, will be created and connected by the
+increment that first needs it.
 
 ## Start here
 
@@ -62,7 +67,7 @@ nostdb/
 ├── nostdb-provider-github/   # connected and pinned
 ├── skills/                   # connected and pinned
 ├── plugins/                  # connected and pinned
-├── nostdb-distribution/      # not yet authorized
+├── nostdb-distribution/      # connected and pinned
 └── homebrew-tap/             # not yet authorized
 ```
 
