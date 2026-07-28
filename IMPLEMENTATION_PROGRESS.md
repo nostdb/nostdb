@@ -2,7 +2,8 @@
 
 Last updated: 2026-07-28
 
-Current stage: Stage 11 is `IN_PROGRESS` at increment 1, which records the scope below.
+Current stage: Stage 11 is `IN_PROGRESS` at increment 2. `manifest_version` is specified
+with twenty-two fixtures. Increment 3 connects `plugins`.
 
 Nothing in Stage 10 has ever called a model, and that is the design rather than a gap: what
 a model returns cannot be pinned by a fixture, so everything testable is the surface around
@@ -1174,11 +1175,44 @@ runs alongside the Engine.
 | Increment | Content | Status |
 | --- | --- | --- |
 | 1 | this scope | DONE |
-| 2 | the `manifest_version` contract and the GitHub plugin source grammar, with fixtures | PENDING |
+| 2 | the `manifest_version` contract and the GitHub plugin source grammar, with fixtures | DONE |
 | 3 | connect `plugins`; a reference manifest and the authoring guidance | PENDING |
 | 4 | `nostdb plugin add`: resolution, pinning, digests, and consent | PENDING |
 | 5 | out-of-process execution and the Engine-owned exchange stream | PENDING |
 | 6 | the viewer's exchange format, and a reference viewer that consumes it | PENDING |
+
+### Increment 2: a manifest is a request, not a grant
+
+Everything under `permissions` is what a plugin **asks** for. The user approves an
+installation, the approval is recorded, and execution is checked against the record rather
+than against what the manifest says today. A plugin that could widen its own permissions by
+editing its manifest would grant itself whatever it liked, and the recorded digest is what
+makes an edit visible.
+
+Four decisions the document argues rather than states:
+
+- **`entrypoint.command` is an argument vector, never a string.** A manifest comes from a
+  repository somebody else wrote, and a string a shell interprets is that author choosing
+  what runs — including what runs *instead*. The path must name something inside the plugin:
+  one naming `/bin/sh` or `../../../usr/bin/env` is naming something it did not ship;
+- **`database_write` exists so it can be refused by name.** Only the Engine writes `.nostdb`,
+  so the field could have been omitted — but then a manifest requesting it would be silently
+  ignored, and an author who asked has a misunderstanding worth correcting rather than one
+  worth leaving them holding;
+- **`network_hosts` rejects `*`.** Not treating it as a wildcard: a plugin wanting the whole
+  network is asking for something a user cannot meaningfully approve, and a field able to
+  express that makes refusing harder rather than easier;
+- **two digests are recorded, not one.** The manifest digest detects an edited request; the
+  tree digest detects edited code behind an *unchanged* request, which is the more dangerous
+  of the two precisely because nothing about the plugin's stated intent would have changed.
+
+An escaping `output_paths` entry is rejected rather than clamped, for the reason clamping is
+usually wrong: it would grant something adjacent to what was asked, and the author would not
+know which.
+
+Twenty-two fixtures install nothing. Here that is not only the convenience it was for the
+change-set and locator suites — a suite that installed a plugin to test installation would be
+executing the thing this contract exists to keep from executing.
 
 ### The sentence this Stage is organized around
 
@@ -2370,7 +2404,7 @@ the only rule that cannot silently weaken a declaration the author wrote.
 Increment 4 is larger than the three before it put together. It is being taken in parts,
 and this records what is done, what is not, and why the split falls where it does.
 
-Done, at `nostdb-spec` `aa64b35`, `nostdb-core` `9d9657e`, and `nostdb-cli` `cd81d0e`:
+Done, at `nostdb-spec` `be857c4`, `nostdb-core` `9d9657e`, and `nostdb-cli` `b08e6f8`:
 link resolution and recursive federation in Core, federated queries, `link list`, `link
 check`, `sync`, and `link add` and `link remove` through the multi-file journal, and the source scanner with
 its hand-written Git-ignore matcher, `plan`, the Rust structural analyzer, `build`, and `apply`.
