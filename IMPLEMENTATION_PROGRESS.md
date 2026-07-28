@@ -2,9 +2,13 @@
 
 Last updated: 2026-07-28
 
-Current stage: Stage 9 is `IN_PROGRESS`, with increments 1 through 9 done. `link refresh`
-works end to end, which closes a command that had been refused since Stage 7. Increment 10
-is read-only federation over a remote `.nostdb`, the last thing Stage 9 scoped.
+Current stage: none is `IN_PROGRESS`. Stage 9 closed at increment 10. Stage 10 stays
+`PENDING` until `skills` is created and pinned; the Stages 7 through 12 grant covers it.
+
+One thing Stage 9 built is unverified against reality: every test proves the provider behaves
+correctly against a *recorded* GitHub, and only a live run with a real credential proves the
+recording is what GitHub actually sends. That run is named in the Stage 9 scope as needing
+separate authorization, and it still does.
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification, Engine, and command-surface repositories `nostdb-spec`,
@@ -36,7 +40,7 @@ requirements.
 | 6 | DONE | openCypher subset and query execution | Stage 5 |
 | 7 | DONE | CLI, REPL, conversion, and link management | Stage 6, plus connected `nostdb-cli` |
 | 8 | DONE | Per-user local daemon | Stage 7, plus connected `nostdb-server` |
-| 9 | IN_PROGRESS | GitHub provider | Stage 7, plus connected `nostdb-provider-github` |
+| 9 | DONE | GitHub provider | Stage 7, plus connected `nostdb-provider-github` |
 | 10 | PENDING | Skills and AI enrichment workflow | Stages 7 and 9, plus connected `skills` |
 | 11 | PENDING | Plugin manager and WebGPU reference viewer | Stage 7, plus connected `plugins` |
 | 12 | PENDING | npm, Homebrew, and GitHub distribution gates | Stages 8 through 11, plus connected `nostdb-distribution` and `homebrew-tap` |
@@ -1218,7 +1222,7 @@ product has, and the first that is not a local filesystem.
 | 7 | an HTTP client, and the binary that serves the protocol | DONE |
 | 8 | running a provider as a child process | DONE |
 | 9 | the settings snapshot fields and `link refresh` | DONE |
-| 10 | read-only federation over a remote `.nostdb` | PENDING |
+| 10 | read-only federation over a remote `.nostdb` | DONE |
 
 The contract comes first for the same reason it did in Stages 7 and 8: the provider is a
 separate executable, so the protocol between it and the Engine is the whole interface, and
@@ -1539,16 +1543,56 @@ added. The build failed immediately because the invented commit does not exist �
 had one collided, and pinning is the mechanism the whole workspace's reproducibility rests
 on.
 
-### Where Stage 9 stands
+### Increment 10: a remote database in a query
+
+A remote link opens. Bytes a provider materialized and the Engine already verified are
+parsed and joined to the federation the way a local link is.
+
+The opener is a closure, for the same reason `refresh_links` takes one: this decides what a
+link *means*, not how an executable is found, and a caller that owns the provider can be
+tested without one. Generic rather than a trait object so it can be reborrowed for each
+link — a closure that opens a network source cannot be cloned, and every step of the walk
+needs the same one.
+
+Passing none reports every remote link as having no provider, which is a fact about the
+caller rather than about the link. That is what `resolve` still does, so nothing that
+federated before behaves differently.
+
+A remote source is parsed from bytes rather than opened from a path. It has no local path,
+and materializing one to disk would put a file somewhere nobody asked for — so its `path`
+is the locator, which was always its identity.
+
+**A remote source's own links are not followed**, and that is a decision rather than an
+omission. One provider round trip per level is a cost worth deciding on rather than
+discovering, and a link it declares is not silently dropped: it is simply not followed, and
+one level is what this build promises.
+
+Every failure leaves the link declared and the root intact — a provider that refuses, an
+artifact that will not decode, a caller with no provider at all. That is the contract
+requirement that where a break happened does not change what a query returns.
+
+### Where Stage 9 ended
 
 The provider works. The protocol is specified and gated by fixtures, the Engine speaks it,
 the provider serves it on standard input and output, locators canonicalize, and the GitHub
 API layer resolves, enumerates, reads, and caches — 47 tests, **none of which touches a
 network**.
 
-What remains is read-only federation over a remote `.nostdb`: opening a graph a provider
-materialized and unioning it into a query the way a local link already is. The pieces it
-needs — a verified artifact, a resolved snapshot, a provider that can be started — all exist.
+Everything it scoped, across ten increments: a specified protocol with fixtures, a connected
+child repository, a locator that canonicalizes, a GitHub API layer, a request loop, a tree
+cache, an HTTP client, a process transport, `link refresh`, and remote federation.
+
+Four contracts were amended or authored along the way — `provider_protocol_version` written
+from nothing, and the settings contract amended twice more. None needed a version bump,
+because the preservation rule in that contract was written for exactly this kind of
+addition.
+
+**What is not proven.** Every test in Stage 9 runs against a recorded GitHub. That was the
+right design — section 16.3 requires behavior on a cached snapshot and when a host is
+unreachable, and neither can be produced on demand against a live service — but it means the
+recordings are assumptions until a live run checks them. That run needs a real credential,
+the scope named it as unauthorized when it was written, and nothing built since has changed
+that.
 
 What also remains, and is not an increment, is the **live conformance run against a real
 repository with a real credential**. The scope has named it unauthorized since it was
@@ -2007,7 +2051,7 @@ the only rule that cannot silently weaken a declaration the author wrote.
 Increment 4 is larger than the three before it put together. It is being taken in parts,
 and this records what is done, what is not, and why the split falls where it does.
 
-Done, at `nostdb-spec` `aa64b35`, `nostdb-core` `6d63393`, and `nostdb-cli` `7f0b5aa`:
+Done, at `nostdb-spec` `aa64b35`, `nostdb-core` `10d421a`, and `nostdb-cli` `7f0b5aa`:
 link resolution and recursive federation in Core, federated queries, `link list`, `link
 check`, `sync`, and `link add` and `link remove` through the multi-file journal, and the source scanner with
 its hand-written Git-ignore matcher, `plan`, the Rust structural analyzer, `build`, and `apply`.
