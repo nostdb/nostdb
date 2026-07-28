@@ -2,8 +2,9 @@
 
 Last updated: 2026-07-28
 
-Current stage: none is `IN_PROGRESS`. Stage 8 closed at increment 5. Stage 9 stays `PENDING`
-until `nostdb-provider-github` is authorized, created, and pinned.
+Current stage: Stage 9 is `IN_PROGRESS` at increment 1, which authored the provider protocol
+contract and needed no child repository. Increment 2 connects `nostdb-provider-github` and
+waits on that repository being authorized, created, and pinned.
 
 Current milestone: The clean-slate root workspace is initialized, and the
 specification, Engine, and command-surface repositories `nostdb-spec`,
@@ -35,7 +36,7 @@ requirements.
 | 6 | DONE | openCypher subset and query execution | Stage 5 |
 | 7 | DONE | CLI, REPL, conversion, and link management | Stage 6, plus connected `nostdb-cli` |
 | 8 | DONE | Per-user local daemon | Stage 7, plus connected `nostdb-server` |
-| 9 | PENDING | GitHub provider | Stage 7, plus connected `nostdb-provider-github` |
+| 9 | IN_PROGRESS | GitHub provider | Stage 7, plus connected `nostdb-provider-github` |
 | 10 | PENDING | Skills and AI enrichment workflow | Stages 7 and 9, plus connected `skills` |
 | 11 | PENDING | Plugin manager and WebGPU reference viewer | Stage 7, plus connected `plugins` |
 | 12 | PENDING | npm, Homebrew, and GitHub distribution gates | Stages 8 through 11, plus connected `nostdb-distribution` and `homebrew-tap` |
@@ -1160,21 +1161,22 @@ nothing.
 
 ## Stage 9 scope
 
-**Not started.** The scope below is recorded ahead of the work, and Stage 9 stays `PENDING`
-until `nostdb-provider-github` is created and pinned.
+Increment 1 is done and needed no child repository: a contract is specification work, and
+`nostdb-spec` is already connected. That ordering was not a convenience — writing the
+protocol first is the same rule Stages 7 and 8 followed, and here it also means the
+repository is authorized against a written interface rather than against an intention.
 
-The Stages 7 through 12 grant covers creating it, and Stage 8 re-confirmed that grant for
-`nostdb-server` before creating it. Following that precedent rather than reading the standing
-grant as sufficient on its own, this asks for the same re-confirmation. Recording the scope
-first costs nothing and creates nothing; it also means the authorization is being asked for
-against a stated plan rather than in the abstract.
+Increment 2 is where `nostdb-provider-github` is created, and it waits. The Stages 7 through
+12 grant covers creating it, and Stage 8 re-confirmed that grant for `nostdb-server` before
+creating it; this follows that precedent rather than reading the standing grant as
+sufficient on its own.
 
 Stage 9 builds the out-of-process GitHub provider: the second source of graph data the
 product has, and the first that is not a local filesystem.
 
 | Increment | Content | Status |
 | --- | --- | --- |
-| 1 | the `provider_protocol_version` contract and the `github://` locator grammar, with fixtures | PENDING |
+| 1 | the `provider_protocol_version` contract and the `github://` locator grammar, with fixtures | DONE |
 | 2 | connect `nostdb-provider-github` as scaffolding, and the Core-side out-of-process client | PENDING |
 | 3 | locator parsing, browser-URL normalization, and ref-to-commit resolution | PENDING |
 | 4 | tree enumeration, blob reading, and the content cache tie-in | PENDING |
@@ -1204,6 +1206,37 @@ What still needs authorization, and is not part of any increment above:
 - anything that would place a token in this workspace. Section 15.3 already forbids it
   reaching settings, graph files, caches, diagnostics, or command output, and nothing here
   changes that.
+
+### Increment 1: what the protocol had to decide
+
+The shape follows from what a provider *is*: the component that holds a credential and talks
+to a network, and the one most likely to have been written by somebody other than whoever
+shipped the Engine. That is why it runs out of process, and why the protocol between them is
+the entire interface rather than an implementation detail.
+
+Three decisions the document argues rather than asserts:
+
+- **a credential travels as a name, never a secret.** The Engine cannot leak one it never
+  held. Section 15.3 lists where a raw credential must not appear and does not mention
+  provider diagnostics, only because providers did not exist when it was written — the
+  protocol document closes that gap explicitly rather than relying on the list being read
+  generously;
+- **`content_id` is the host's own identifier and not a digest the Engine may trust.**
+  Section 16.3 uses a Git blob ID to decide what to *avoid downloading*; everything actually
+  downloaded is digested independently before it is opened. Conflating the two would let a
+  host decide what the Engine believes about bytes it never checked;
+- **a refusal is a reply, not an exit.** An Engine that gets no reply cannot tell a version
+  mismatch from a crash, and those need different things from whoever hits them.
+
+Binary content does not travel inside JSON. A `read` reply names a length and the bytes
+follow the newline as an opaque run, which keeps a megabyte blob from being base64-inflated
+by a third on every hop. A provider that writes the wrong number has corrupted the stream,
+and the Engine closes it rather than resynchronizing: a stream whose framing is wrong cannot
+be trusted to report that it is wrong.
+
+Twenty-five fixtures, none of which reaches a network — twelve locators, thirteen messages.
+The locator set includes a browser URL that must normalize, because a locator is a link's
+identity and two spellings of one identity is two links.
 
 ### What section 16 pins down before any code
 
