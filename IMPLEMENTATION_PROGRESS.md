@@ -7066,3 +7066,66 @@ the same shape: something between the test and the assertion.
 comparison: `62 codes, 7 Engine warnings agree`. `GRAPH_SCHEMA_VERSION` is 4.
 
 **Not published.** Stages 13 through 18 all reach nobody without a release.
+
+## Release 0.1.2, and an entrypoint nothing could start
+
+Six Stages reached a published build: the Kotlin analyzer, the bundled GitHub provider, the plugin index,
+Spring route extraction, `CYPHER_UNKNOWN_LABEL`, and the pin and diagnostic corrections around them.
+
+A **patch** number, chosen after 0.2.0 was recommended. What it understates is recorded beside the version
+in `Cargo.toml` rather than only here: `plugin_install_version` went 1 to 2, so a plugin record an older
+build wrote is refused rather than read, and `GRAPH_SCHEMA_VERSION` went 2 to 4, so the first build after
+this redraws. Nothing has such a record — no published build could install a plugin, because the provider
+was never bundled until this release — which makes the cost zero in practice and does not make the break
+smaller.
+
+### The draft caught a defect the suite did not
+
+Verifying the draft, `plugin add` reported success and `nostdb view` then failed:
+
+```text
+PLUGIN_FAILED: .../org.nostdb.view-webgpu/bin/nostdb-view could not be started: Permission denied
+```
+
+A plugin is executed out of process by path, so a file written without an executable bit is a plugin
+nothing can start — and the failure arrives three commands after the thing that caused it.
+
+The archive assembler has checked its own executable bit since the first release, on the stated grounds
+that "a tar that lost the bit produces an install nothing can run". **Installation had no equivalent
+check.** The same defect in the other half of the same journey, and the reason it survived is that both
+halves were verified separately and nobody walked the whole path until a release forced it.
+
+Two decisions in the fix:
+
+- **only the declared entrypoint**, and not according to a mode the source supplied. A remote tree saying a
+  file is executable is not a reason to make it so: installation must produce a plugin that can start,
+  which is one file, and marking the rest would widen what a plugin can do because its author said to;
+- **an entrypoint the plugin lacks is refused at `add`**, where somebody is watching. `PLUGIN_FAILED` at
+  the first action that needs it names the symptom instead of the cause, which is exactly how this
+  presented.
+
+The draft was discarded and rebuilt rather than patched, so nothing published ever held it.
+
+### What was verified before anything became public
+
+- all **twelve** digests recomputed from the assets they name — four archives and, for the first time, two
+  programs inside each;
+- each of the four archives confirmed to hold `nostdb` **and** `nostdb-provider-github`;
+- the darwin-arm64 archive extracted and walked end to end with `NOSTDB_GITHUB_PROVIDER` unset:
+  `build` found a Spring route, `plugin add` installed the viewer from the pinned index, and `view`
+  rendered and wrote its output;
+- the launcher packed, installed from the tarball, and run — it fetched, verified, reported
+  `engine 0.1.2`, and unpacked the provider beside `nostdb`;
+- each of the four formula digests checked against the downloaded artifact rather than copied on trust.
+
+### The reported question, from the registry
+
+```text
+npx --yes --package=nostdb nostdb build --project .
+analyzed   48 files    recorded 71 files    endpoints 5 from spring
+
+MATCH (e:Endpoint) RETURN e.method, e.path
+GET /api/auth/callback/google   GET /auth/callback/google   GET /auth/google/login
+GET /auth/google/register       GET /temp
+```
+
