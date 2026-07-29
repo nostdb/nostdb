@@ -1817,6 +1817,44 @@ question has an answer.
 script, so nothing above touches it. It failed once locally after the pull and has passed every run
 since, and the diagnostics added for it did not fire — so it is not the path they instrument.
 
+## Reported and fixed: a checkbox nobody could tick
+
+Reported directly. With no Engine installed, the Skill showed:
+
+```text
+[ ] install   npm install --global nostdb        install globally
+[ ] npx       npx --yes --package=nostdb nostdb  run without installing
+[ ] none      do not resolve; report what required the Engine
+```
+
+and nothing could be selected.
+
+`SKILL.md` said "present the options as a checkbox list", and an agent followed it exactly — rendering
+three empty boxes into a chat, where there is nothing to click. Worse than prose, because it looks like
+it should work.
+
+### The resolver was never the problem
+
+`resolve-engine.sh` draws `[x]`/`[ ]` too, and there they are a **real** control: the arrow keys move
+the selection when the script owns a terminal. When an agent runs it there is no terminal, so it exits
+`1` with plain text naming the three answers. That path was correct. Only the instruction about what to
+do with it was wrong.
+
+The definition now says to ask the way the agent asks anything else, to use a native way of offering a
+choice where it has one, and to take a typed answer — and names the three answers as prose rather than
+as rows of a widget.
+
+### The check is scoped, because the same markers are legitimate one file over
+
+A checkbox marker in `SKILL.md` now fails, proven by adding one. The resolver is deliberately not
+covered: forbidding the string everywhere would forbid the working control while fixing the imitation
+of it.
+
+That distinction is the whole lesson. This project has now written four checks that fired on a document
+*explaining* a rule rather than breaking it, and the fix each time was to narrow the scope rather than
+loosen the rule. This is the same shape from the other side: the string is fine in one file and wrong in
+another, and what separates them is whether a reader can act on it.
+
 ## Decided: a Skill's surface is its own
 
 Requested directly, and it relaxes an invariant the root contract stated. Recorded here because a
