@@ -7194,3 +7194,76 @@ schema Struct     schema Trait       schema TypeAlias  schema Union
 ```
 
 `GRAPH_SCHEMA_VERSION` is 5. **Not published**: 0.1.2 does not have this.
+
+## Release 0.1.3: one release number, and a Skill that says it follows latest
+
+Requested: update everything, have the Skill always target latest, unify the versions, and pick the lowest
+number npm will take.
+
+**0.1.3**, because npm holds 0.1.2 and a registry never goes backwards. Every package and crate now carries
+it: `nostdb-core`, `nostdb-cli`, `nostdb-server`, `nostdb-provider-github`, `nostdb-spec`,
+`nostdb-distribution`, the reference plugin, and the Skill — nine places that held four different numbers.
+
+### Contract versions were not unified, and that is the substance of the request
+
+"Unify the versions" read literally would set `nost_language_version`, `nostdb_format_version`,
+`plugin_install_version`, `manifest_version`, `provider_protocol_version`, and the rest to 0.1.3 as well.
+That was **not** done, and the reason is the whole point of them. `VERSIONS.md` states it:
+
+> Changing the `.nostdb` container layout must not invalidate a `.nost` file, and adding a plugin action
+> must not renumber the daemon protocol.
+
+Fourteen contracts each answer a question a release number cannot. Giving them one number would make every
+one of them mean the same thing, which is to say nothing — and `nostdb --version --json` reports them
+separately precisely so a caller can ask about one without being told about all.
+
+So: package versions unify, contract versions stay independent. The distinction is recorded in each commit
+that moved a number, because that is where somebody will next be tempted to move the others with it.
+
+### The Skill declares what it already did
+
+`engine: latest` in the frontmatter. The default path already resolved `npx --yes --package=nostdb nostdb`,
+unpinned — nothing said so, and every `0.1.0` in the Skill's prose is history explaining why `--project` is
+used rather than a pin.
+
+Checked **both** ways, because they drift in opposite directions: a frontmatter line claiming `latest` while
+the script emits a pinned command is a promise nothing kept, and a script that happens to be unpinned with
+nothing declaring it should be is one commit from being pinned by somebody who reads it as an oversight.
+
+`metadata.version` is the Skill's own version and moves with the release number. Stated in the definition,
+because a reader seeing one number there would reasonably assume the Skill was tied to that Engine.
+
+A caller who asks for a version still gets it pinned, and that is tested. Removing it would leave no way to
+pin at all, and the contract objects to an unpinned *fallback* — what happens when nobody chose — not to
+pinning on request.
+
+### A version that drifted, caught by eye
+
+The release walk showed `plugin add` reporting `org.nostdb.view-webgpu 0.1.3` and the render reporting
+`0.1.0`, two lines apart. The viewer keeps its own `NAME` and `VERSION` constants, and the version drifted
+the moment the manifest was bumped.
+
+A viewer that misreports its version reports it into the exchange stream, where a caller has no other source
+for it. The `plugins` verifier now requires both constants to equal the manifest's and is proven to reject.
+
+The draft was discarded and rebuilt against the corrected plugin, so nothing published held it. This is the
+second release in a row where the draft caught something the suites did not — the first was an entrypoint
+written without an executable bit.
+
+### Verified before publishing
+
+Twelve digests recomputed, both programs confirmed in all four archives, the darwin archive walked end to
+end with the provider variable unset (`build`, `export --nost`, `check`, `plugin add`, `view`), the launcher
+packed and installed from its tarball, and every formula digest checked against the download.
+
+### From the registry, on the reported repository
+
+```text
+npx --yes --package=nostdb nostdb build --project .
+analyzed 48 files    endpoints 5 from spring
+
+schemas in the .nost: 14        .nostdb/root.nost: valid
+npx resolves engine 0.1.3
+```
+
+Every Stage from 13 through 19 is now in a published build.
