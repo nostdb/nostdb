@@ -74,6 +74,7 @@ requirements.
 | 12 | DONE | npm, Homebrew, and GitHub distribution gates | Stages 8 through 11, plus connected `nostdb-distribution` and `homebrew-tap` |
 | 13 | DONE | Language-neutral analysis: every project builds a graph, with or without an analyzer | Stage 7 |
 | 14 | DONE | One workspace, one set of pins: a child depends on the sibling revision the root pins | Stage 12 |
+| 15 | IN_PROGRESS | A second analyzer: the boundary that holds one, and Kotlin | Stage 13 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -6543,3 +6544,78 @@ named, and restoring it passes.
 - `nostdb-server` and `nostdb-cli` build, test, lint, and verify on the aligned pins with no source
   change.
 - Child CI is green, and root CI is green over the new pins.
+
+## Stage 15 scope
+
+Stage 13 made every repository appear in its own graph. This Stage is about depth: the reported Kotlin
+service records 71 files and analyzes none of them, because Rust is the only analyzer this build has.
+
+The direction that opened Stage 13 said an analyzer is a means of spending fewer tokens. That makes a
+second analyzer worth having on its own terms — Kotlin structure extracted deterministically is
+structure nobody pays a model for — and it makes the *boundary* worth fixing first, because there is
+no second-analyzer boundary yet. There is a Rust analyzer with its name written into places that
+should not know it.
+
+| Increment | Content | Status |
+| --- | --- | --- |
+| 1 | this scope, and the audit of what one analyzer hid | IN_PROGRESS |
+| 2 | ownership and provenance per producer, so two analyzers can coexist | PENDING |
+| 3 | the Kotlin lexer | PENDING |
+| 4 | Kotlin items, its declared capability, and fixtures | PENDING |
+
+### The audit: five places that know the analyzer is Rust
+
+```text
+build.rs  parse_cache_key   analyzer_digest = "rust/1", for every language
+build.rs  analyzer_owner    Owner::Analyzer { name: "rust", version: "1" }, for every record
+build.rs  analyzed_evidence producer_version = rust::VERSION, for every item
+build.rs  file_evidence     the same, for every file record
+build.rs  a link's evidence producer = rust::LANGUAGE, for a fact no analyzer produced
+```
+
+Each is harmless with one analyzer and wrong with two:
+
+- **the cache key** would store a Kotlin parse under the Rust analyzer's identity, so bumping the
+  Kotlin analyzer would not invalidate Kotlin parses and bumping the Rust one would invalidate them
+  for no reason;
+- **the owner** is the serious one, below;
+- **the evidence** would have Kotlin items claiming the Rust analyzer's version as their provenance,
+  which is precisely the question evidence exists to answer;
+- **a link's evidence** names the Rust analyzer as the producer of a link the user declared.
+
+### The owner is one value per change set, and the PRD makes it per-analyzer
+
+`docs/PRD.md` section 11.3 is explicit:
+
+> An analyzer refresh may replace only contributions owned by that analyzer and source unit. It MUST
+> preserve user contributions and contributions from other analyzers.
+
+A `GraphChangeSet` carries exactly one owner. So a project holding both Rust and Kotlin cannot be
+drafted as one change set once the two analyzers are distinct owners — and today it "works" only
+because every record in every language is owned by `rust/1`, which is the boundary not existing rather
+than the boundary holding.
+
+`apply` takes `&mut Graph` and one change set, and nothing commits inside it. Several change sets can
+therefore apply against one in-memory graph before a single commit, which keeps "a failed mutation
+preserves the last valid generation" intact while giving each producer its own owner.
+
+The directory tree gets its own owner for the same reason. It is not a Rust fact and no analyzer
+produced it: the scan did, and its evidence already says so.
+
+### Recorded, not fixed: how a superseded analyzer version is retired
+
+Section 11.3 says a refresh replaces only contributions owned by **that analyzer and source unit**, and
+`Owner::Analyzer` carries a version, documented as deliberate — "upgrading an analyzer does not
+silently adopt facts the previous version produced".
+
+Both are reasonable and together they leave a gap. When the Rust analyzer goes from version 1 to 2,
+version 2's refresh may not touch version 1's contributions, and nothing else is specified that
+retires them. Section 11.3's "A Node is physically removed only when no contribution or retained Edge
+requires it" then keeps version 1's records alive indefinitely, and the graph holds both readings of
+every file.
+
+Nothing here changes that, because the owning contract has to decide it: whether a build withdraws
+every `Owner::Analyzer` contribution for the units it rebuilds regardless of version, or whether a
+version bump is a migration with its own explicit step. It is not blocking this Stage — a second
+analyzer is a different *name*, not a different version — and it is recorded because adding the second
+analyzer is what made it visible.
