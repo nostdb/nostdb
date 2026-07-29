@@ -240,6 +240,57 @@ fi
 spec_registry="nostdb-spec/diagnostics.json"
 core_diagnostics="nostdb-core/src/diagnostic.rs"
 
+# The severity a code carries is declared in two places, so the two are compared here.
+#
+# The registry records `"severity"` per code and `nostdb-core` decides it again in
+# `default_severity`. Nothing held them together, and the consequence is not hypothetical:
+# `CYPHER_UNKNOWN_LABEL` was registered as a warning, defaulted to an error in Rust, and the CLI
+# printed `error:` for a query that had executed and returned rows it was entitled to return. A
+# warning announced as an error is the same defect as a message describing the wrong thing.
+#
+# The registry is the authority, because it is the document a caller reads to know what a code means.
+if [ -f "$spec_registry" ] && [ -f "$core_diagnostics" ] && command -v node >/dev/null 2>&1; then
+  node - "$spec_registry" "$core_diagnostics" <<'NODE' || exit 1
+const fs = require("node:fs");
+const [registryPath, corePath] = process.argv.slice(2);
+const registry = JSON.parse(fs.readFileSync(registryPath, "utf8")).codes;
+const source = fs.readFileSync(corePath, "utf8");
+
+// The `default_severity` arms, as written. Everything named before the `=> Severity::Warning` arms is
+// a warning and the fallback is an error, so the warnings are what must be enumerated.
+const body = source.slice(source.indexOf("fn default_severity"));
+const arms = body.slice(0, body.indexOf("Severity::Error"));
+const declaredWarnings = new Set(
+  [...arms.matchAll(/Self::([A-Za-z]+)/g)].map((found) => found[1]),
+);
+
+// `CypherUnknownLabel` from `CYPHER_UNKNOWN_LABEL`, which is how the two documents spell one code.
+const camel = (code) =>
+  code
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join("");
+
+let failed = false;
+for (const entry of registry) {
+  if (entry.owner !== "nostdb-core") continue;
+  const wanted = entry.severity === "warning";
+  const found = declaredWarnings.has(camel(entry.code));
+  if (wanted !== found) {
+    console.error(
+      `${entry.code} is registered as ${entry.severity} and nostdb-core defaults it to ` +
+        `${found ? "warning" : "error"}`,
+    );
+    failed = true;
+  }
+}
+if (failed) process.exit(1);
+const warnings = registry.filter((e) => e.owner === "nostdb-core" && e.severity === "warning");
+console.log(`diagnostic severity: ${registry.length} codes, ${warnings.length} Engine warnings agree`);
+NODE
+fi
+
 # The codes the registry assigns to one owner. The registry is machine-written with `code`
 # ahead of `owner` in every entry and the nostdb-spec suite requires both fields on every
 # entry, so pairing them by order is exact rather than approximate.

@@ -77,7 +77,7 @@ requirements.
 | 15 | DONE | A second analyzer: the boundary that holds one, and Kotlin | Stage 13 |
 | 16 | DONE | A recommendation that can be followed: the plugin source, and the bundled provider | Stage 12 |
 | 17 | DONE | A plugin repository declares itself: `plugins/*` and `nostdb.plugins.json` | Stage 16 |
-| 18 | IN_PROGRESS | Framework analyzers, and AI where none covers a framework | Stage 15 |
+| 18 | DONE | Framework analyzers, and AI where none covers a framework | Stage 15 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -6928,11 +6928,11 @@ The direction: add framework analyzers, and where no analyzer covers a framework
 
 | Increment | Content | Status |
 | --- | --- | --- |
-| 1 | this scope, and what the contract already required | IN_PROGRESS |
-| 2 | annotations survive the language analyzer | PENDING |
-| 3 | the framework analyzer boundary, its capability, and the AI-fallback diagnostic | PENDING |
-| 4 | Spring: `Endpoint` records for HTTP routes | PENDING |
-| 5 | two diagnostics that described the wrong thing | PENDING |
+| 1 | this scope, and what the contract already required | DONE |
+| 2 | annotations survive the language analyzer | DONE |
+| 3 | the framework analyzer boundary, its capability, and the AI-fallback diagnostic | DONE |
+| 4 | Spring: `Endpoint` records for HTTP routes | DONE |
+| 5 | a diagnostic that described the wrong thing, and three severities that did | DONE |
 
 ### This was already contracted, and unimplemented
 
@@ -6973,3 +6973,96 @@ under a plan and a budget, and its output is `PrecisionClass::AiFallback` with e
 An AI-produced `Endpoint` must never be indistinguishable from a deterministic one. Section 17.3 already
 requires it — "results MUST NOT imply that heuristic or AI fallback results have the same confidence as
 deterministic facts" — and a record's `precision` property is where that is answered.
+
+### Increments 2 to 4: where the route was, and where it goes
+
+**Annotations survive.** `Item` carries them, and the Kotlin lexer carries a string literal's content —
+a route lives *inside* a string, and an annotation whose arguments read `<literal>` says a string was
+there and not which one. A number never carries that kind of meaning, so a numeric literal stays a bare
+fact.
+
+Arguments are kept verbatim. `@GetMapping("/x")` and `@RequestMapping(value = ["/x"], method = [...])`
+mean the same to Spring and nothing to Kotlin, so normalising them in a language analyzer would be
+guessing at a framework it does not know. Three things this needed that were not obvious:
+
+- **an annotation ends the previous expression body.** `fun a() = 1` followed by `@Test fun b()` swallowed
+  the `@Test`, because `@` is not a declaration keyword and the body reader ran past it;
+- **a modifier may sit on either side of it.** Both `@Inject private val x` and `private @Inject val x`
+  are legal, and gathering only before modifiers dropped half of them;
+- **annotations round-trip through the parse cache.** Without that a framework analyzer would see them on
+  a first build and not on a second — the same file yielding different facts depending on caching.
+
+**The framework layer.** A framework analyzer consumes what a language analyzer produced and declares its
+own capability and version. Spring's declares `EntryPoint` and `SourceRange` and nothing else: it reads
+routes, not injection or persistence or scheduling, and declaring more would advertise coverage it has
+not got.
+
+What it refuses to claim is the substance of it. It does not evaluate `${api.base}/x`, because the value
+lives in a properties file it does not read. `@RequestMapping(method = [...])` reports `ANY`, because
+reading that list means parsing an expression language a syntactic analyzer has no grammar for. A mapping
+outside a route holder is not a route, because Spring does not serve it. A class-level `@RequestMapping`
+is a prefix, because emitting it would report an endpoint the application does not answer.
+
+**Where AI comes in.** A file carrying annotations no analyzer interprets is reported **by annotation
+name**, not by framework name. Naming the framework would need a list of frameworks this build knows of
+and cannot read — a closed allowlist by another route, which section 4 forbids. Annotation names are
+evidence rather than a guess, and they are what makes the fallback well posed: those are the units worth
+enriching, and the diagnostic says why.
+
+An annotation on that list is not an error. Most annotations mean nothing to any framework.
+
+### The reported question, answered
+
+```text
+endpoints  5 from spring
+
+MATCH (e:Endpoint) RETURN e.method, e.path
+GET  /temp                       GET  /auth/google/login
+GET  /api/auth/callback/google   GET  /auth/google/register
+GET  /auth/callback/google
+```
+
+Cross-checked against the source: five method-level mappings, all five present, the class-level
+`@RequestMapping("/auth")` joined as a prefix and correctly absent as a route of its own. Each reaches its
+handler through `HANDLED_BY`.
+
+### Increment 5: zero rows was indistinguishable from zero rows
+
+`CYPHER_UNKNOWN_LABEL` is registered and emitted. Nothing in an empty result had said the label was
+unknown, so the empty table looked like a data problem and the explanation produced from it named the
+wrong cause — reasonably.
+
+A warning rather than an error, because a label may be absent since the project has none of that thing,
+and a query written once and run against many databases must not become invalid because one lacks a
+label. `MATCH` only: a label a query `CREATE`s is one the database is about to carry.
+
+**And three severities that were wrong.** The registry declares a severity per code and `nostdb-core`
+decided it again, with nothing holding the two together — so this landed as a warning in the registry, an
+error in Rust, and printed `error:` for a query that had executed and returned what it was entitled to.
+
+The root verifier now compares the two, and on its first run it found three more:
+`LINK_UNAVAILABLE`, `LINK_CYCLE`, and `LINK_LIMIT_EXCEEDED` were registered as warnings and returned
+errors. The rest of the Engine already treated them as warnings — `result.rs` makes each mark a result
+**partial**, which only a warning can do to a result that returned rows — and `AGENTS.md` says outright
+that an unavailable link "yields reachable partial results plus a structured warning".
+
+They went unnoticed because the test that checked severity **exempted exactly those three codes**. The
+exemption list was not a convenience; it was the reason nobody knew. It now names the seven warnings and
+requires every other code to be an error, with nothing tolerated in between.
+
+### A mistake worth recording
+
+I pushed three failing tests. The command that was supposed to gate the push ran the suite, the linter,
+and the verifier in one `&&` chain that an `echo "verifier=$?"` had already broken, so the commit ran
+unconditionally and I read the exit codes afterwards. Fixed in the next commit and stated in its message.
+
+The lesson is not "be careful". It is that a gate written as a chain of `&&` with anything printed in the
+middle is not a gate, and every check in this session that reported success while proving nothing has had
+the same shape: something between the test and the assertion.
+
+### Verification
+
+`nostdb-core` 771 tests, `nostdb-cli` 95, `nostdb-server` 28, every verifier, and the root's new severity
+comparison: `62 codes, 7 Engine warnings agree`. `GRAPH_SCHEMA_VERSION` is 4.
+
+**Not published.** Stages 13 through 18 all reach nobody without a release.
