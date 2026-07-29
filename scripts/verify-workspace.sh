@@ -109,6 +109,52 @@ if [ -f .gitmodules ]; then
     exit 1
   fi
 
+  # Every child that depends on a sibling must depend on the revision this root pins.
+  #
+  # The root's whole job is exact pins and integration, and this was the one thing it did not hold:
+  # `nostdb-server` was eleven Core commits behind the Core the root pinned, and `nostdb-cli` was
+  # built against a `nostdb-server` two commits behind the one the root pinned. Three revisions of one
+  # workspace, shipped as one product, and every repository verified green on its own.
+  #
+  # What that costs is real: the daemon's query engine and the CLI's were the same source at different
+  # revisions, so a query could answer differently depending on whether it was reached through `@name`
+  # or through a path. "Two implementations of one question" is the failure the ownership boundaries
+  # exist to prevent, and two revisions of one implementation is the same failure wearing a disguise.
+  #
+  # A child cannot check this: it does not know what the root pinned. This is the only place that can.
+  # A file rather than a variable: the loop below reads from a pipe, so it runs in a subshell and
+  # anything it assigned would be discarded the moment the pipeline ended — which is how a check
+  # reports success while having found something.
+  pin_report=$(mktemp)
+  trap 'rm -f "$pin_report"' EXIT
+  for manifest in */Cargo.toml; do
+    [ -f "$manifest" ] || continue
+    child=${manifest%/Cargo.toml}
+    # Each `nostdb-<name>.git", rev = "<sha>"` a child's manifest declares.
+    grep -oE 'nostdb-[a-z-]+\.git", rev = "[0-9a-f]{40}"' "$manifest" 2>/dev/null | while read -r pin; do
+      dependency=$(printf '%s' "$pin" | grep -oE '^nostdb-[a-z-]+')
+      wanted=$(printf '%s' "$pin" | grep -oE '[0-9a-f]{40}')
+      # The root's pin for that path, read from the **index**.
+      #
+      # Not from `HEAD`: this verifier runs before a commit, and the round that re-pins a child stages
+      # the new pin and the child's matching manifest together. Comparing against `HEAD` would refuse
+      # exactly the commit that fixes a mismatch, and the only way to satisfy it would be to commit
+      # first and verify afterwards — which is the wrong way round for a pre-commit check.
+      root_pin=$(git ls-files --stage "$dependency" | awk '$1 == "160000" { print $2 }')
+      if [ -z "$root_pin" ]; then
+        echo "$child depends on $dependency, which this root does not pin" >&2
+        echo "mismatch" >> "$pin_report"
+      elif [ "$wanted" != "$root_pin" ]; then
+        echo "$child pins $dependency at $wanted; this root pins $root_pin" >&2
+        echo "mismatch" >> "$pin_report"
+      fi
+    done
+  done
+  if [ -s "$pin_report" ]; then
+    echo "a child depends on a sibling revision this root does not pin" >&2
+    exit 1
+  fi
+
   # A recorded branch lets `git submodule update --remote` float a pin, which
   # docs/PRD.md section 8.1 forbids for a reproducible build.
   if recorded_branches=$(git config --file .gitmodules --get-regexp '^submodule\..*\.branch$'); then

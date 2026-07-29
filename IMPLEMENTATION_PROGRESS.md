@@ -73,6 +73,7 @@ requirements.
 | 11 | DONE | Plugin manager and reference viewer | Stage 7, plus connected `plugins` |
 | 12 | DONE | npm, Homebrew, and GitHub distribution gates | Stages 8 through 11, plus connected `nostdb-distribution` and `homebrew-tap` |
 | 13 | DONE | Language-neutral analysis: every project builds a graph, with or without an analyzer | Stage 7 |
+| 14 | DONE | One workspace, one set of pins: a child depends on the sibling revision the root pins | Stage 12 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -6470,3 +6471,75 @@ recorded   71 files, 71 with no analyzer for their language
 note: it analyzes rust; this project is css, kotlin, make, markdown, sql, toml, unknown, yaml
 note: 2 file(s) skipped: sensitive
 ```
+
+## Stage 14 scope
+
+Every Stage was `DONE`, every repository verified green, and the product shipped **three revisions of
+one workspace**.
+
+| Increment | Content | Status |
+| --- | --- | --- |
+| 1 | this scope, the audit, and the check that holds it | DONE |
+
+### What the audit found
+
+The root pins each child as an exact submodule commit. A child that depends on a sibling pins it by
+revision in its own `Cargo.toml`. Nothing compared the two:
+
+```text
+nostdb-cli    pins nostdb-server at 2ee27a0; this root pins 8ab7850
+nostdb-server pins nostdb-core   at 7097a2; this root pins 775c794
+```
+
+`nostdb-server` was **eleven Core commits behind** the Core the root pinned, and `nostdb-cli` — the
+crate published as 0.1.1 — was built against a daemon two commits behind the one the root pinned,
+which was itself built on that older Core. So released 0.1.1 contained a client for one revision of a
+daemon built on a third revision of the Engine.
+
+### Why this is worse than being out of date
+
+The daemon does not build graphs; it opens databases, runs queries, and holds transactions. So no
+graph was written wrongly, and the severity is not in what was stored.
+
+It is in the query engine. The daemon's and the CLI's are the same source at two revisions, so a query
+could answer differently depending on whether it was reached through `@name` or through a path. The
+ownership boundaries in `AGENTS.md` exist to prevent "two implementations of one question", and one
+implementation at two revisions is indistinguishable from two implementations from the outside — the
+same defect wearing a disguise the boundaries were not written to catch.
+
+Among what the daemon was missing: `State the query subset version`, which is the contract it reports
+over its own protocol. It was answering with a version from before the contract was stated.
+
+### Why no repository could have caught it
+
+Each child verified green, correctly. `nostdb-server` builds and passes on Core `7097a2` — there is
+nothing wrong with it in isolation, and asking it to check would require it to know what the root
+pinned, which it cannot.
+
+`docs/REPOSITORIES.md` gives the root exactly this job: cross-repository documents, **exact pins**, and
+integration orchestration. The pins were exact and unverified against the only other place that
+records them. This is the one check that had to live at the root and did not.
+
+### The check reads the index, not `HEAD`
+
+Its first version compared against `HEAD` and refused the very commit that fixes a mismatch: a re-pin
+round stages the new gitlink and the child's matching manifest together, so `HEAD` still holds the old
+pin while the index holds the correct one. A pre-commit verifier that can only pass after the commit
+is the wrong way round, and the rest of this script already reads gitlinks from the index.
+
+It also writes findings to a file rather than a variable. The loop reads from a pipe, so it runs in a
+subshell, and a count assigned inside would be discarded when the pipeline ended — a check that
+reports success having found something.
+
+Proven to reject: pointing `nostdb-cli` at a Core revision of all zeroes fails with the mismatch
+named, and restoring it passes.
+
+### Acceptance criteria
+
+- Every child that depends on a sibling depends on the revision the root pins, and the root refuses a
+  commit where one does not.
+- The check names the child, the dependency, both revisions, and reads the index so a re-pin round can
+  satisfy it.
+- `nostdb-server` and `nostdb-cli` build, test, lint, and verify on the aligned pins with no source
+  change.
+- Child CI is green, and root CI is green over the new pins.
