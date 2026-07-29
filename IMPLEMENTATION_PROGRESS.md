@@ -1783,7 +1783,7 @@ expects, wrote `checksums.json` from what the assembly recorded, and ran the lau
 That is the whole chain except the two acts that need authorization, and it is what makes the claim
 "every install route reports compatible version data" a result rather than an intention for this route.
 
-## Diagnosed: the provider tests shared one path in `/tmp`
+## Diagnosed, twice: the provider tests exec'd a file they had just written
 
 Root CI failed a third time in `nostdb-core`'s `provider_process` tests, and this time the diagnostic
 named the cause: `Text file busy (os error 26)` starting `/tmp/nostdb-provider-handshake.sh`.
@@ -1795,6 +1795,28 @@ path when it finished, so a slower one could lose its program mid-run.
 
 Fixed by making the path unique per script, with the process id and an atomic counter. Twelve runs of
 the module to confirm it is stable rather than lucky.
+
+### Unique paths were the wrong fix, and the diagnostic said so
+
+It failed again, on `/tmp/nostdb-provider-handshake-8334-0.sh` — a path no other test could touch. So
+the collision was never between tests, and the first reading of `ETXTBSY` was wrong even though the
+message named the file.
+
+It is fork and exec. These tests run in parallel and `Command::spawn` forks, so a child forked by one
+thread briefly inherits the write descriptor another thread still holds on its own script. While that
+duplicate exists the file cannot be exec'd **by anyone**. The descriptor is what is busy, not the name,
+which is why every unique path in the world does not help.
+
+The fix is to stop exec'ing a written file at all: the fake provider now runs as `sh <script>`, so the
+script is an argument and `sh` is the program. Nothing under test is lost — the point is the framing
+across a real pipe with a real child, and `sh` reading a script is both. A real provider is an
+executable named by configuration, not a file the Engine wrote a moment ago, so exec'ing a freshly
+written file was never the case worth covering.
+
+**What proves it is not a run count.** The unique-path fix passed twenty local runs and then failed on
+CI. This one is verified structurally: nothing in the crate marks a written file executable any more,
+and the only spawns left are `/bin/sh` and a path that deliberately does not exist. A statistical
+argument is what the last fix had.
 
 ### This is probably what the earlier failure was
 
