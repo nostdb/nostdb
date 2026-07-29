@@ -1817,7 +1817,7 @@ question has an answer.
 script, so nothing above touches it. It failed once locally after the pull and has passed every run
 since, and the diagnostics added for it did not fire — so it is not the path they instrument.
 
-## Reported and fixed: a checkbox nobody could tick
+## Reported twice: a checkbox nobody could tick, then a sentence nobody could read
 
 Reported directly. With no Engine installed, the Skill showed:
 
@@ -1844,11 +1844,31 @@ The definition now says to ask the way the agent asks anything else, to use a na
 choice where it has one, and to take a typed answer — and names the three answers as prose rather than
 as rows of a widget.
 
+### The first fix over-corrected
+
+Banning the checkbox left the definition saying "ask in one sentence and name the three answers", and
+that was reported too: a sentence with three words buried in it is not something anybody scans. The
+broken widget at least read as a list.
+
+So the rule is not "no list". It is **no imitated control**:
+
+- a **list** is required, because that is what somebody reads;
+- a **native single-select** is preferred wherever the agent has one — that is the only place a real
+  `[x]` can come from, since the harness draws the control and hands back the answer;
+- **empty brackets in a message** are refused, because nothing can tick them.
+
+A number a reader can type is a list. A bracket a reader cannot click is a broken widget. Both fixes
+were reactions to a report, and the second one is the one that reads the way the reporter asked for.
+
 ### The check is scoped, because the same markers are legitimate one file over
 
 A checkbox marker in `SKILL.md` now fails, proven by adding one. The resolver is deliberately not
 covered: forbidding the string everywhere would forbid the working control while fixing the imitation
 of it.
+
+One of the checks added with the first fix required `**install**` in bold, and broke the moment the
+bullet list became a numbered one. It was testing how the answer was formatted rather than whether it
+was there — the same mistake as pinning a tar column position, one domain over.
 
 That distinction is the whole lesson. This project has now written four checks that fired on a document
 *explaining* a rule rather than breaking it, and the fix each time was to narrow the scope rather than
