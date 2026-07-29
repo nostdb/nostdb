@@ -7129,3 +7129,68 @@ GET /api/auth/callback/google   GET /auth/callback/google   GET /auth/google/log
 GET /auth/google/register       GET /temp
 ```
 
+
+## Reported: `File` and `Endpoint` had no schema
+
+`/.nostdb/root.nost` used `File`, `Directory`, `Endpoint`, `Struct`, `Method`, `Field`, `Function`,
+`Trait`, and `Enum`, and declared a schema for none of them.
+
+### It was valid, and the contract says why
+
+`nost_language_version` section 5.3.3 permits a record to name a schema nothing declares, and
+`nostdb check` reported the file valid. So this was not a conformance failure and is not recorded as one.
+
+What the section also says is that the consequence is **"accepted rather than solved"**: a misspelled
+schema name is indistinguishable from an intentional bare label, and "no syntax can tell the two apart
+while schemas remain optional."
+
+That is the same gap `CYPHER_UNKNOWN_LABEL` had just closed on the query side, unclosed on the file side.
+And the Engine is in a position nobody else is: it knows the shape exactly, because it wrote the records.
+
+### The decision, and what it costs
+
+A schema declaration carries no `@by` in version 2 and `Schema` carries no owner in Core, so an
+Engine-declared schema is indistinguishable from a hand-written one. Three options were put, and the one
+chosen was **write them unowned and accept clobbering**, over a `nost_language_version` 3 bump.
+
+So the cost is real and stated rather than softened: **a hand-written `schema File { … }` is replaced on the
+next build.** What was built to keep that from being silent, without inventing ownership:
+
+- the build reports `replaced_schemas` when the stored form **differed** from what it declares. An
+  identical one is not reported, because nothing was lost;
+- a schema naming a label the Engine does not write is **kept**. A user's schemas for their own records are
+  nobody's business here, and replacing the whole list would delete them.
+
+They are also not change-set operations, because there is no operation for a schema: a change set carries
+contributions and validates their owner, and a thing with no owner does not fit it. This is the one thing a
+build writes outside its change set, and that is stated at the line that does it.
+
+### Node schemas only
+
+An endpoint constraint names one source schema and one target schema. `CONTAINS` legitimately runs
+`Directory -> File`, `Directory -> Directory`, `File -> Struct`, `File -> Endpoint`, and `Struct -> Method`
+— so no edge schema is declared, because declaring any one of those shapes would raise a violation on every
+edge of the others.
+
+### What the tests pin
+
+Both directions: a label with no schema fails, and a schema naming a label nothing writes fails. The item
+labels are read from `label_for` rather than listed twice, so adding an `ItemKind` fails here instead of
+quietly gaining a label with no schema.
+
+Every required field is checked against the properties a record actually carries — a schema requiring a
+field the writer never sets would make every record of that label raise `NOST_SCHEMA_VIOLATION`, which
+would be worse than declaring nothing. And the materialized `.nost` is reparsed and validated: declaring
+schemas produced **zero** violations.
+
+### The reported file
+
+```text
+schema Constant   schema Directory   schema Endpoint   schema Enum    schema Field
+schema File       schema Function    schema Impl       schema Method  schema Module
+schema Struct     schema Trait       schema TypeAlias  schema Union
+
+.nostdb/root.nost: valid
+```
+
+`GRAPH_SCHEMA_VERSION` is 5. **Not published**: 0.1.2 does not have this.
