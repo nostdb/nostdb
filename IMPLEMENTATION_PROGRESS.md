@@ -75,6 +75,7 @@ requirements.
 | 13 | DONE | Language-neutral analysis: every project builds a graph, with or without an analyzer | Stage 7 |
 | 14 | DONE | One workspace, one set of pins: a child depends on the sibling revision the root pins | Stage 12 |
 | 15 | DONE | A second analyzer: the boundary that holds one, and Kotlin | Stage 13 |
+| 16 | DONE | A recommendation that can be followed: the plugin source, and the bundled provider | Stage 12 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -6726,3 +6727,90 @@ fails the moment the set grows, which reads as a regression and is the opposite.
 `GRAPH_SCHEMA_VERSION` is 3 — a Kotlin file used to assert only that it existed, so a database built
 before this holds Kotlin records this build would not write, and reuse would keep them because the
 bytes did not change.
+
+## Stage 16 scope
+
+Reported from a real run: `nostdb view .` reported `PLUGIN_REQUIRED` and named a plugin, and
+`nostdb plugin add` then **refused the source it had just been told to run**:
+
+```text
+PLUGIN_SOURCE_INVALID: `ref` is not `ref=<git-ref>`
+```
+
+Replacing the branch with an immutable commit changed nothing, which reads as a bug in the source
+grammar. It was not the grammar, and there were two defects behind one symptom.
+
+| Increment | Content | Status |
+| --- | --- | --- |
+| 1 | the operand that never arrived whole | DONE |
+| 2 | the provider no release has ever shipped | DONE |
+
+### Increment 1: the source parser never saw the source
+
+Every argument was split on `=` to support `--scope=global`, and the part *before* the `=` was pushed
+as the operand. So
+
+```text
+https://github.com/nostdb/plugins?ref=main#reference/view-webgpu
+```
+
+reached the source parser as `https://github.com/nostdb/plugins?ref`, and was refused for not being
+`ref=<git-ref>`. The message described the source grammar for a source the grammar never saw — which
+is why replacing `main` with a commit hash changed nothing, and why the conclusion "engine-side
+source-parser bug" was the reasonable reading of it.
+
+The split now applies only to an option. Two checks, both proven to fail on the old code:
+
+- the source `PLUGIN_REQUIRED` recommends is **read out of `view.rs`** and required to survive the
+  operand parser *and* the source grammar with its ref and subdirectory intact. Read rather than
+  written out, so changing what is recommended cannot leave a test checking a string nobody prints;
+- an `=` splits an option and never an operand.
+
+This is the third instance this round of the same shape: a message the surface prints and a parser
+that refuses it, with nothing reading the two against each other. The others were `build [PATH]` and
+the Skill's documented `plan --format json .`.
+
+### Increment 2: no release has ever contained a provider
+
+With the URL arriving whole, the install failed for the next reason — no provider executable. That is
+not a configuration mistake. `docs/PRD.md` section 17.5 requires the GitHub provider "bundled at a
+compatible version in official distributions", and every archive published so far holds exactly one
+program.
+
+So **every published install refused every plugin install and every GitHub link**, and the
+recommendation the CLI prints could not be followed from anything a user could install. `plugin add`
+and `link refresh` both looked the provider up in an environment variable only, which made section
+17.5 impossible to honour: a release could ship the provider and still refuse, until the caller found
+out about a variable nothing had mentioned.
+
+**Finding it.** `NOSTDB_GITHUB_PROVIDER` still wins; the executable beside this one is checked after
+it. The sibling rather than `PATH`, because a release archive holds both programs — so the sibling is
+the one this build was published with, and picking one off `PATH` could start a provider from another
+install at another protocol version.
+
+**Shipping it.** The assembler takes `--provider` and stages it under the exact name the engine looks
+for; every member is digested and every member is checked to round-trip out of the archive with its
+executable bit. Members are sorted so entry order cannot depend on insertion order, and the
+reproducibility check now proves it with two members rather than one.
+
+`attested` is `false` for the provider. It is packaged and digested and never started, and claiming
+otherwise would claim a check nothing performed.
+
+The workflow builds it for each target from **the revision the superproject pins**, not from its
+default branch. The root is what records which revision of each child this product is, and a release
+taking whatever the branch happened to be would ship a provider nothing had verified beside this
+engine. A target whose provider fails to build now fails the release rather than assembling one
+without it.
+
+### What is fixed and what is not, until a release
+
+Both defects are fixed in source and **neither reaches a user without a release**. Published 0.1.1
+still truncates the operand and still ships no provider, so `nostdb view .` cannot install its viewer
+from npm, Homebrew, or the GitHub archive. That is the same gap Stage 13 had and it is stated rather
+than left to be discovered: a fix that is not published is a fix nobody has.
+
+### Verification
+
+`nostdb-cli` 96 tests and its verifier, `nostdb-distribution` 87 checks and its verifier, and an
+archive assembled locally holding both programs with three recorded digests, reproducible across two
+runs, with the launcher's own verification accepting the provider member.
