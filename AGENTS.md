@@ -244,7 +244,9 @@ Both forms are valid:
 ## Skill and plugin policy
 
 - The Skill is an AI-capable extension of the CLI, not another Engine.
-- AI-free Skill actions map exactly to deterministic CLI actions.
+- An AI-free Skill action has the CLI do the work and never computes an answer itself. It
+  need not be one CLI command, nor be named after one: `/nostdb .` runs two and `/nostdb help`
+  runs none. What is fixed is who does the work, not how the request is spelled.
 - Resolve commands project-local, then compatible global, then pinned `npx`.
 - Never use an unpinned `latest` fallback for a state-changing non-interactive
   action.
@@ -289,7 +291,8 @@ Every feature includes coverage appropriate to its boundary:
   openCypher conformance fixtures;
 - CLI: exit classes, JSON/JSONL/CSV, and multiline REPL;
 - Server: concurrency, timeouts, user boundary, recovery, and isolation;
-- Skills: fixtures proving AI-free actions call the same Core command;
+- Skills: fixtures pinning the Core commands each AI-free action invokes — one, several, or
+  none;
 - plugins: manifest, pinning, integrity, consent, failure preservation, and
   viewer performance tiers;
 - distribution: project npm, global npm, pinned npx, Homebrew, and GitHub.

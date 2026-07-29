@@ -1783,6 +1783,58 @@ expects, wrote `checksums.json` from what the assembly recorded, and ran the lau
 That is the whole chain except the two acts that need authorization, and it is what makes the claim
 "every install route reports compatible version data" a result rather than an intention for this route.
 
+## Decided: a Skill's surface is its own
+
+Requested directly, and it relaxes an invariant the root contract stated. Recorded here because a
+child cannot weaken a root boundary — the root itself had to change.
+
+### What the rule said, and what it says now
+
+The root contract said "AI-free Skill actions map exactly to deterministic CLI actions", and the Skill
+restated it as "an AI-free action calls the same Core command the CLI calls. Not an equivalent one."
+
+It now says: an AI-free action **has the CLI do the work** and never computes an answer itself. It need
+not be one CLI command, nor be named after one.
+
+### Why the old rule was already strained
+
+`/nostdb .` runs two commands — a guarded `init` and a `build`. That was true before this change, and
+it is why `tests/dispatch.test.sh` had to bridge three vocabularies by hand: the table's `/nostdb .`,
+the dispatcher's `build`, and the CLI's `init` plus `build`. The mapping was never one-to-one; the rule
+said it was.
+
+What the rule was protecting is a second engine, and the new wording protects exactly that and nothing
+more. Mirroring a command table bought no additional guarantee — the surface a user types and the
+commands that run it are different questions, and conflating them made the smaller surface the one that
+had to give.
+
+### Two things the relaxation made possible
+
+**`/nostdb help` runs nothing.** It mapped to `nostdb help`, so reading a help message required
+resolving an Engine — and with none installed, resolution stops and asks whether to install one. Asking
+somebody to install a database to find out what a Skill does is the wrong order of operations. The
+surface now lives in `SKILL.md`, `/nostdb help` shows it from there, and `scripts/help.sh` prints it for
+a script caller by **reading `SKILL.md`** rather than carrying a second copy.
+
+**`/nostdb .` is what `build` serves.** It had been labelled `/nostdb . --ai=off`, so the plain form
+every user actually types named no action and an agent had to guess which one to reach for. It now
+serves the bare form, and the surface states what it writes — `settings.json` and `root.nostdb` — and
+that it does **not** write `.nost` unless the project has it enabled or `--nost` is passed, because a
+flag's absence is not a request.
+
+### One check had to stop being textual, and one was decoration
+
+The dispatch test decided which actions the dispatcher maps by grepping its `case` labels. With `help`
+now a label that maps nothing, that scan counted an action emitting no command — so the set is
+determined by *running* the dispatcher. An action that emits no command is legitimate now, which is
+precisely why the check cannot read source any more.
+
+The first version of the new extraction check compared `help.sh`'s output against a string built from
+`SKILL.md`, and passed on both branches of its own `case` — it could not fail. It now edits `SKILL.md`,
+requires the edit to appear in `help.sh`'s output, and restores the file. A grep for a string the test
+invented would have passed just as well against a hard-coded copy, which is the thing it exists to rule
+out.
+
 ## Stage 12 increment 5: published
 
 Authorized explicitly: `0.1.0`, npm and GitHub. Everything below was verified after publishing rather
