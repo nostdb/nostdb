@@ -77,6 +77,7 @@ requirements.
 | 15 | DONE | A second analyzer: the boundary that holds one, and Kotlin | Stage 13 |
 | 16 | DONE | A recommendation that can be followed: the plugin source, and the bundled provider | Stage 12 |
 | 17 | DONE | A plugin repository declares itself: `plugins/*` and `nostdb.plugins.json` | Stage 16 |
+| 18 | IN_PROGRESS | Framework analyzers, and AI where none covers a framework | Stage 15 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -6910,3 +6911,65 @@ install-flow refusals, the plugins verifier proven to reject in both directions,
 `nostdb --version --json` reporting `plugin_install_versions: [2]`.
 
 **Not published.** Like Stages 13 through 16, this reaches nobody without a release.
+
+## Stage 18 scope
+
+Reported: `MATCH (e:Endpoint)` returned nothing for a Spring service, and the explanation given was that
+Kotlin internals were not analyzed. That was the weakest of three causes.
+
+1. **`Endpoint` is a label nothing produces.** The query returns 0 rows on every build that has ever
+   existed, including one with the Kotlin analyzer. Fixing language analysis changes nothing about it.
+2. **The route was discarded.** Endpoints in that repository are `@GetMapping("/api/...")`, and the
+   Kotlin analyzer skipped annotations and their arguments. Proven against a real controller: the
+   database holds `TempController`, `temp`, `googleCallback`, and `GetMapping` appears zero times.
+3. **The installed 0.1.1 has no Kotlin analyzer at all** — true, and the least of the three.
+
+The direction: add framework analyzers, and where no analyzer covers a framework, let AI decide.
+
+| Increment | Content | Status |
+| --- | --- | --- |
+| 1 | this scope, and what the contract already required | IN_PROGRESS |
+| 2 | annotations survive the language analyzer | PENDING |
+| 3 | the framework analyzer boundary, its capability, and the AI-fallback diagnostic | PENDING |
+| 4 | Spring: `Endpoint` records for HTTP routes | PENDING |
+| 5 | two diagnostics that described the wrong thing | PENDING |
+
+### This was already contracted, and unimplemented
+
+`docs/PRD.md` section 17.4 lists what a deterministic analyzer SHOULD extract, and one line of it is:
+
+> - configuration-defined entry points;
+
+`FactKind::EntryPoint` exists in `nostdb-core` with exactly that doc comment, declared by nothing. A
+Spring route is a configuration-defined entry point in the most literal sense: the method is declared in
+Kotlin and the route is declared in an annotation argument.
+
+So this is not a new product direction and is not recorded as one. It is a SHOULD that no analyzer has
+ever satisfied, and the reason it went unnoticed is that nothing named the gap — an unimplemented
+`FactKind` is invisible until somebody asks the question it answers.
+
+### Why a framework layer rather than more Kotlin
+
+A route is not a language fact. `@GetMapping` means nothing to Kotlin; it means something to Spring, and
+the same annotation in a project not using Spring is an ordinary annotation. Putting Spring knowledge
+into the Kotlin analyzer would mean:
+
+- the Kotlin analyzer's declared coverage would grow every time a framework was added, so its version
+  would move for reasons having nothing to do with Kotlin;
+- a second language on the same framework — Spring from Java — would duplicate the framework knowledge
+  in a second language analyzer, which is the "two implementations of one question" failure again.
+
+So a framework analyzer consumes what a language analyzer produced and declares its own capability. The
+language layer says what the source declares; the framework layer says what those declarations mean to
+a framework.
+
+### Where AI comes in, and what it may not do
+
+A framework this build has no analyzer for gets an explicit capability diagnostic and its units stay
+eligible for enrichment, which is section 17.3's existing rule for an unsupported language applied to an
+unsupported framework. Nothing changes about the order: a structural generation commits first, AI runs
+under a plan and a budget, and its output is `PrecisionClass::AiFallback` with evidence that says so.
+
+An AI-produced `Endpoint` must never be indistinguishable from a deterministic one. Section 17.3 already
+requires it — "results MUST NOT imply that heuristic or AI fallback results have the same confidence as
+deterministic facts" — and a record's `precision` property is where that is answered.
