@@ -72,6 +72,7 @@ requirements.
 | 10 | DONE | Skills and AI enrichment workflow | Stages 7 and 9, plus connected `skills` |
 | 11 | DONE | Plugin manager and reference viewer | Stage 7, plus connected `plugins` |
 | 12 | DONE | npm, Homebrew, and GitHub distribution gates | Stages 8 through 11, plus connected `nostdb-distribution` and `homebrew-tap` |
+| 13 | IN_PROGRESS | Language-neutral analysis: every project builds a graph, with or without an analyzer | Stage 7 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -6191,3 +6192,83 @@ compare until a `.nost` file can be parsed and canonicalized.
 - `cargo fmt --check`, `cargo check`, `cargo clippy --all-targets --all-features
   -- -D warnings`, and `cargo test --all-targets --all-features` pass.
 - Child CI is green, and root CI is green over the new pin.
+
+## Stage 13 scope
+
+Reported: a 41-file Kotlin repository built to `0 nodes, 0 edges`, and the answer given was that a
+structural graph of it is not available. **That answer was wrong at the product level**, and the
+direction is that analysis must not depend on the language — a repository holding only documents and
+no code has to be analyzable too. An analyzer is a means of spending fewer tokens, not the thing that
+decides whether a graph exists.
+
+| Increment | Content | Status |
+| --- | --- | --- |
+| 1 | this scope, and the conflict it resolves | IN_PROGRESS |
+| 2 | a source record for every scanned file, whatever its language | PENDING |
+| 3 | containment, so a graph with no analyzer is still navigable | PENDING |
+
+### This is a defect against the PRD, not a change to it
+
+Worth settling first, because the two have different consequences: a change to the product contract
+needs the contract amended and a version considered, and a defect needs fixing and nothing else.
+
+`docs/PRD.md` section 17.3 already says it outright:
+
+> An unsupported text language remains eligible for AI analysis and **at minimum produces a
+> source/module record with an explicit capability diagnostic**.
+
+Section 4 lists two goals beside it: "impose no product-level programming-language allowlist", and
+"create a useful structural graph without external AI token usage **whenever a deterministic analyzer
+is available**". Read together they say precisely what the direction says. The analyzer is what makes a
+graph free; its absence means depth may cost tokens, not that nothing is recorded.
+
+`nostdb-core/src/build.rs` skips a file whose language has no deterministic analyzer, before anything
+is recorded:
+
+```rust
+if !registry.precision(&file.language).is_deterministic() {
+    coverage.skipped_sources.push(/* … SkipReason::Unsupported */);
+    continue;
+}
+```
+
+So the minimum in 17.3 was never produced. Every Kotlin file was classified correctly, counted
+correctly, reported correctly as unsupported — and then dropped. The scan names 42 extensions and 6
+extensionless files, which is why `plan` could say `kotlin 2 files unsupported`: the language was
+known all along, and the record was the part that was missing.
+
+### What was misread, and why it survived a whole Stage
+
+Nothing here was an accident of implementation. The gate reads as correct if you believe a record
+requires facts to put in it, and every test agreed with it — `analysis: unsupported languages` was
+covered, and what it covered was that an unsupported language is *skipped and reported*, which is the
+behaviour the PRD contradicts. A test can pin the wrong thing precisely.
+
+The reading it encodes is that an analyzer produces the record. What 17.3 says is that the **scan**
+produces the record and an analyzer adds facts to it. The file exists, its path exists, its digest
+exists, and its language is named — those are facts about the repository that no analyzer is needed
+for, and `ScannedFile` already carries every one of them.
+
+### The consequence that mattered
+
+A Kotlin project got `generation 1` holding nothing, and the enrichment route is documented as
+"build the structural database and **commit it**" first, so an AI-free graph is the precondition for
+the AI-assisted one. With no record to attach anything to, every language without an analyzer was
+locked out of both routes — which is exactly the product-level language allowlist section 4 forbids,
+arrived at without anybody writing a list.
+
+### Acceptance criteria
+
+- Every file a scan keeps produces a source record, whatever its language, and a project with no
+  analyzable source commits a generation holding those records.
+- A record carries its language and the precision available for it, so a query can tell a deterministic
+  fact from a file nothing analyzed. No new `PrecisionClass` variant: section 17.3 fixes that enum, and
+  `Unsupported` is the honest answer for a file no analyzer read.
+- An explicit capability diagnostic accompanies it, per section 17.3.
+- A documents-only project — no code at all — builds a non-empty, navigable graph.
+- Coverage keeps saying what has no analyzer. Recording a file is not claiming to have analyzed it, and
+  `structural` must not report `Complete` because records exist.
+- A Rust project's graph is unchanged: same nodes, same edges, same generation behaviour.
+- `cargo fmt --check`, `cargo check`, `cargo clippy --all-targets --all-features -- -D warnings`, and
+  `cargo test --all-targets --all-features` pass in every touched repository.
+- Child CI is green, and root CI is green over the new pins.
