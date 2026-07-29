@@ -1839,6 +1839,62 @@ question has an answer.
 script, so nothing above touches it. It failed once locally after the pull and has passed every run
 since, and the diagnostics added for it did not fire — so it is not the path they instrument.
 
+## Reported from a real run: the Skill emitted a command the Engine refused
+
+`/nostdb .` configured a project and then failed with:
+
+```text
+`build` does not take `/Users/ujon/git/ujon/meerdog-server`
+```
+
+### The command surface changed without any contract version changing
+
+Release 0.1.0 **refuses** a positional path to `build` and accepts `--project PATH`. A later build
+accepts both. The two report **byte-identical `--version --json`** — every contract, every version,
+because no contract changed.
+
+So Engine resolution did exactly what it is specified to do: it asked whether `nost_language_version` 2
+was supported, was told yes, and resolved. Then the Skill handed that Engine an argument it rejects.
+Nothing in the compatibility check could see it, because a contract version covers a file format or a
+protocol and **not the command surface**.
+
+That is a real gap in the design rather than a bug in either component. A contract version for the
+command surface would be the fix; inventing one in the Skill would be a version only the Skill believed
+in, so `RESOLUTION.md` states the limit instead, and the Skill now emits the form every version accepts.
+
+### Two checks were missing, one on each side
+
+**The Skill pinned the string and never ran it.** The dispatch suite asserted what the dispatcher
+*printed* — which proves the mapping did not drift, and not that anything would run it. It now runs each
+emitted command against whatever Engine is on the path.
+
+Its reach is stated in the test rather than assumed: against a **fixed** Engine it passes, so it would
+not have caught this bug. What pins the decision is a separate check requiring `--project` by name. A
+check whose limits are not written down gets read as stronger than it is.
+
+**The CLI's help advertised a form its parser refused.** The summary said `build [PATH]` and
+`plan [PATH]`; the parser took `--project PATH` and rejected a positional. The summary is prose, the
+parser is code, and nothing read them against each other — so the help advertised a form that did not
+work, and a Skill built on the advertised form emitted a command the Engine rejected.
+
+Both are accepted in the current source already. What was missing is anything that would notice if they
+stopped being, so a test now reads every `[PATH]` out of the summary and requires the parser to take it.
+The list is read from the summary rather than written down, because a hand-written list is exactly what
+went stale: it would have had to be edited by whoever added the row that lied.
+
+### The second report was a correct guard that read as a bug
+
+`init` appeared to run every time. It did not — the guard `[ -f .../settings.json ] || init` is correct,
+and the transcript shows no `configured` line on the second run. But the printed command contained `init`
+on every invocation, and a command that says it will initialize is read as one that will.
+
+So `init` is now left out of the emitted command entirely when the settings file is already there. The
+guard stays for the gap between printing a command and running it. Nothing about the behaviour changed;
+what changed is that the command shown is the command that will happen.
+
+Worth recording because the fix is not a behaviour fix. A guard that is correct and looks wrong gets
+reported as a bug, and the reporter was reading the only thing they were shown.
+
 ## Reported twice: a checkbox nobody could tick, then a sentence nobody could read
 
 Reported directly. With no Engine installed, the Skill showed:
