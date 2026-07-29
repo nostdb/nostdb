@@ -78,6 +78,8 @@ requirements.
 | 16 | DONE | A recommendation that can be followed: the plugin source, and the bundled provider | Stage 12 |
 | 17 | DONE | A plugin repository declares itself: `plugins/*` and `nostdb.plugins.json` | Stage 16 |
 | 18 | DONE | Framework analyzers, and AI where none covers a framework | Stage 15 |
+| 19 | DONE | Builtin breadth: many languages named, six analyzed, and a decision about files that are not code | Stage 18 |
+| 20 | DONE | Skill presets: a vocabulary the Engine validates, for facts no deterministic analyzer can claim | Stage 19 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -7266,4 +7268,678 @@ schemas in the .nost: 14        .nostdb/root.nost: valid
 npx resolves engine 0.1.3
 ```
 
-Every Stage from 13 through 19 is now in a published build.
+Every Stage from 13 through 18 is now in a published build.
+
+## Stage 19 scope
+
+Requested: builtins for many programming languages, and for video, audio, and text files. The request
+divided into three pieces with different characters, and only two of them are this Stage's to build.
+
+1. **Naming a language** already existed for 28 languages and was cheap to widen. Done in increment 1.
+2. **Analyzing a language** costs roughly 2,100 lines each — `rust.rs` is 1,412 and `rust_lexer.rs`
+   about 700 — so which languages are analyzed is a decision, not a detail. Six were chosen: Java
+   first, then TypeScript/JavaScript, Python, Go, C++, and C.
+3. **Files that are not code** are not in the graph at all today. The first plan was to record them
+   from the scan, which contradicts a `MUST` in the PRD; the resolution is that they are not recorded
+   from the scan at all. See below — the conflict dissolved rather than being decided.
+
+| Increment | Content | Status |
+| --- | --- | --- |
+| 1 | language naming widened from 28 languages to 69, and the table's invariants pinned | DONE |
+| 2 | Java: the analyzer, and Spring coverage for Java projects | DONE |
+| 3 | TypeScript and JavaScript: the language layer, which the web layer has nothing to read without | DONE |
+| 4 | Python | DONE |
+| 5 | Go | DONE |
+| 6 | C and C++ | DONE |
+| 7a | imports become graph facts, which two analyzers already claim to produce | DONE |
+| 7b | an import target that is not code as an `Asset` joined to what references it | DONE |
+| 7c | the web framework layer: a `Component` of its own, above the file that holds it | DONE |
+
+### Increment 1: naming is not analyzing, and the table says so
+
+`LANGUAGES` went from 42 extensions naming 28 languages to 95 naming 69, and `NAMED_FILES` from 6 to
+12. The additions are the languages a report kept calling `unknown`: Dart, Elixir, Erlang, Clojure,
+F#, Groovy, R, Nim, Crystal, Solidity, PowerShell, Racket, Scheme, Terraform, HCL, Nix, Protobuf,
+GraphQL, Prisma, Vue, Svelte, Astro, SCSS, Sass, Less, XML, XSLT, INI, Java properties, Objective-C++,
+Pascal, Fortran, assembly, batch, Elisp, ERB, Handlebars, TeX, Jupyter, and VB.NET.
+
+Three invariants are now tested rather than described:
+
+- the table stays **sorted with no duplicate extension**. `language_of` takes the first match, so a
+  second row for one extension is unreachable and silently decides which language wins. Sortedness is
+  what makes a duplicate visible in a diff;
+- an **ambiguous extension stays unnamed**. `.m` is Objective-C and MATLAB, `.v` is Verilog and V,
+  `.s` is assembly for several assemblers, `.pro` is Prolog and a Qt project file, and `.d` is D and a
+  make dependency file. A misnamed file says something false where an unnamed one says nothing, so the
+  test asserts these are absent and a later addition has to argue with a test rather than a comment;
+- **naming a language is not claiming to analyze it.** `dart` resolves and `is_supported("dart")` is
+  false, so precision stays `Unsupported` until an analyzer exists. This is the line the rest of the
+  Stage must not blur, and it is what makes a report say "42 Dart files, unsupported" instead of "42
+  unclassified files".
+
+Commands: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`,
+`cargo test --all-targets --all-features` (787 passed, 0 failed), `./scripts/verify-repository.sh`.
+
+### Recorded, not fixed: a file that is not code has nowhere to be
+
+Video, audio, and every other binary file is **absent from the graph**, and not by oversight:
+
+```rust
+pub fn looks_binary(bytes: &[u8]) -> bool {
+    bytes.iter().take(BINARY_SNIFF_BYTES).any(|byte| *byte == 0)
+}
+fn skip(&mut self, relative: &str, reason: SkipReason) { self.scan.skipped.push(/* not files */) }
+```
+
+An MP4, MP3, or WAV holds a NUL byte in its first 8 KiB, so it is `SkipReason::Binary`. A file over
+`DEFAULT_MAX_FILE_BYTES` — 2 MiB, which most video exceeds — is `SkipReason::TooLarge` before it is
+read at all. Either way there is a coverage record and no Node, so nothing can query it.
+
+`docs/PRD.md` section 17.2 is why this is not simply a defect:
+
+> The scanner MUST: (…) **skip binary and oversized files unless an analyzer explicitly supports
+> them**;
+
+Recording a File Node for an unanalyzed video from the scan contradicts that `MUST`. It was the plan
+for about an hour, and the escape clause is not a way around it either: `AnalyzerCapability` is keyed
+by a language string and `register` rejects an empty `facts` list, and the only members of `FactKind` a
+media file could honestly claim are `File` and `ContentHash` — both of which the scan already produces.
+An analyzer that reads no internals would be declaring a capability it does not add, which is the
+claim `PrecisionClass` exists to prevent.
+
+### The conflict dissolves, because an asset is a fact about code
+
+The requirement was never media metadata. It is that a frontend component referencing
+`./assets/logo.png` is **joined to that asset in the graph** — a schema, a path, and an edge from the
+component. Duration, codec, and resolution were never wanted.
+
+That is a fact about **analyzed source**, not about the binary:
+
+- the scanner still skips the file. It is never read, never sniffed, never analyzed, and section 17.2
+  is satisfied exactly as written;
+- the Node comes from the `import` statement in a component the analyzer *did* read;
+- `FactKind::ImportExport` already exists, so the capability is honest;
+- `FactKind` and `ItemKind` need no new member, so the closed-enum question is not on this path.
+
+Nothing about the scanner changes. The whole feature lives where imports are turned into graph facts,
+which is where the defect below already lives.
+
+### Recorded and to be fixed here: `ImportExport` is declared and never produced
+
+`rust::capability()` and `kotlin::capability()` both declare `FactKind::ImportExport`. Neither produces
+it. `build.rs` reads `analysis.items` and never `analysis.imports`; the only consumers of `imports` are
+`cache.rs`, which serializes it, and `spring.rs`, which reads it to recognize a framework. No import
+relation type exists — the build emits `CONTAINS`, `CALLS`, `FOR_TYPE`, `HANDLED_BY`, and `IMPLEMENTS`.
+
+Reproduced on the reported repository, whose Kotlin sources do contain `import` statements:
+
+```text
+772 :CONTAINS    307 :CALLS    9 :HANDLED_BY
+```
+
+This is Stage 18's defect again, one fact kind over: there, `Endpoint` was a label nothing produced and
+the query returned zero rows on every build that had ever existed. Here a caller asking
+`capability.extracts(FactKind::ImportExport)` is told `true` and then finds nothing, which is worse than
+an absent capability because it is a promise.
+
+So increment 7a fixes the declaration by making it true, and 7b is the asset case of the same
+mechanism: an import target that resolves to no code becomes an `Asset` rather than a Placeholder for a
+symbol that was never a symbol. Increments 2 through 6 are unaffected — a language analyzer is squarely
+inside what section 17.2 already permits.
+
+### Increment 7a: the declaration is now true
+
+`IMPORTS` joins a file to a file it imports from, and `FactKind::ImportExport` stops being a promise.
+`GRAPH_SCHEMA_VERSION` is 6, because the version is part of every parse cache key and a new relation
+changes what a build asserts.
+
+**Resolved by path correspondence, never by name.** An import is a path written in the language's own
+separator, and the file it names is that path on disk: `a.b.C` is `.../a/b/C.kt`, `crate::helper::Thing`
+is `.../helper.rs`. Both separators are normalized, the last segment is dropped as a second candidate so
+one rule serves a language whose import ends in a declaration and one whose import ends in a symbol
+inside a module file, and a leading `crate` or `self` is stripped because it names the root rather than
+a directory under it. A candidate that two files answer to resolves to neither, which is the rule the
+name index already uses.
+
+Matching by last segment would have been cheaper and wrong. A project declaring exactly one `List`
+would have had `import java.util.List` resolve to it, and the graph would assert that a file imports a
+class it does not import. That case is a test rather than a caution: a suffix of a real path cannot be
+produced by an import naming something outside the project, so a dependency is counted in
+`unresolved_units` exactly as an unresolved call is.
+
+Correspondence is anchored on a separator, so `a/b/at` is not found by `a/b/Cat.rs`, and a trailing
+`/mod` is dropped so a directory module is imported by its directory's name.
+
+Five tests: an internal import becomes an edge, a dependency never matches a same-named local
+declaration, a `use` ending in a symbol finds the module file, an ambiguous path resolves to neither,
+and correspondence is anchored.
+
+Commands: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings` (clean),
+`cargo test --all-targets --all-features` (784 passed, 0 failed), `./scripts/verify-repository.sh`.
+
+### Found while placing 7a: the Kotlin analyzer discards the package it documents
+
+`src/analyze/kotlin.rs`'s table of what it reads says:
+
+> | `package a.b` | the file's package, on every qualified name below |
+
+It is not on any qualified name. The parser consumes the declaration and drops it:
+
+```rust
+Some("package") => {
+    self.advance();
+    self.qualified_name();   // the return value is not bound
+}
+```
+
+The reported repository proves it — every Kotlin record is `AuthController` or
+`AuthController::googleLoginUrl`, never `com.meerdog.api.AuthController`. So the documentation
+overstates what the analyzer records, which is the same class of defect as a capability declaring a fact
+kind nothing produces.
+
+Not fixed here, and 7a does not need it: path correspondence resolves imports without any package
+information, which is why it was chosen. Fixing it means putting the package on every qualified name,
+and a qualified name is an identity — every Kotlin record in every existing database would be retired
+and re-minted. That is what `GRAPH_SCHEMA_VERSION` exists for, but it is a migration to run
+deliberately rather than as a side effect of an import edge.
+
+### Increment 2: Java, and the layer earning its keep
+
+`java_lexer.rs` and `java.rs`, registered in `builtin_registry` and in `analyze`. 32 tests.
+
+**A separate lexer, for the reason the Kotlin one gives about Rust.** Java is the closest case yet —
+same platform, same annotation syntax — and still a different grammar where a lexer cannot be wrong:
+a **block comment does not nest**, so `/* /* */ */` closes at the first terminator and reading it
+Kotlin's way swallows the rest of the file; there are **no string templates**, so `"${a}"` is four
+ordinary characters; there are **no backtick identifiers**, so `Token` carries no flag for one; and a
+**text block opens on three quotes followed by a line terminator**, so `""` beside `"x"` is two
+strings rather than a text block holding the rest of the file. Each of those is a test.
+
+Two decisions the analyzer records rather than guesses:
+
+- **every supertype is a reference, and `implements` is never claimed.** Java writes `extends` and
+  `implements` separately and looks like it distinguishes them, but an `interface` also writes
+  `extends` for what it inherits, and at syntactic precision nothing here can tell which name is a
+  class. Kotlin's analyzer reached the same conclusion from the same problem;
+- **no `Constant` is produced.** Kotlin records one for a `val` at file scope and Java has no file
+  scope. Recording `static final` as a Constant would make one declaration two kinds depending on its
+  modifiers, and nothing downstream asks that question.
+
+Java has no keyword introducing a method or a field, so the two are told apart by what follows the
+name: a `(` makes it a method. That is the whole rule, and it is the one a reader uses — which is why
+`Map<String, List<Integer>> grouped()` needs the type walked before the name is known.
+
+**Spring came for free, and that is the layer's whole claim discharged.** Nothing in
+`framework/spring.rs` mentions Java: it reads `FileAnalysis`, and an analyzer producing the same
+annotations reaches it. A Java `@RestController` with `@GetMapping` now yields the same `Endpoint`
+records a Kotlin one does, proven by a test in `spring.rs` that runs the Java analyzer through the
+same `framework::analyze`. Spring is predominantly Java, so until now the framework layer covered the
+smaller half of its own ecosystem.
+
+One behavior changed while writing it. A stray `}` at file scope used to end the parse, which would
+hide every declaration after it in a file somebody is partway through editing; it is now skipped.
+
+Commands: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings` (clean),
+`cargo test --all-targets --all-features` (818 passed, 0 failed), `./scripts/verify-repository.sh`.
+
+### Increment 3: TypeScript and JavaScript, and the import bug they exposed
+
+`typescript_lexer.rs` and `typescript.rs`, registered for both languages. 38 tests in the analyzer, 16
+in the lexer.
+
+**One lexer and one analyzer for both languages**, which is the opposite of the call made for Java, and
+for a reason: every JavaScript file is a TypeScript file that declares no types. `interface`, `type`, and
+`enum` do not appear in a `.js` file and cost nothing to read for. Java and Kotlin share a platform and
+not a grammar; these two share a grammar. Two capabilities are registered so a caller asking about
+`javascript` gets an answer, and they declare the same facts and version because it is one analyzer.
+
+Two ambiguities decide whether anything after them reads correctly, and both are tested:
+
+- **a `/` is division or a regex, and only the previous token says which.** `a / b` divides;
+  `return /ab+/.test(x)` does not. A regex holding `{`, `"`, or `'` is ordinary, so reading one as
+  division unbalances every brace after it and moves every later declaration into the wrong scope. The
+  rule is decided from the previous token, with the keywords that may precede an expression listed;
+- **a template literal nests.** `` `${ {a: `${b}`} }` `` holds a brace, an object, a nested template, and
+  a string inside a string. This is Kotlin's problem again and worse, because templates are how
+  JavaScript writes most of its strings.
+
+**JSX is read as punctuation, and the cost is recorded rather than hidden.** No element grammar: a
+structural analyzer wants the declarations around JSX, not inside it. The one cost is that JSX text
+holding an apostrophe — `<p>don't</p>` — opens a string that runs to the end of the line. It cannot run
+further, because a quoted string stops at a newline, so the damage is one line of one body and never the
+file's brace balance. A test states it.
+
+#### The bug increment 3 found in increment 7a
+
+`imported_file` normalized dots to slashes, which is right for `a.b.C` and **destroys a filesystem
+path**: `./assets/logo.png` became `//assets/logo/png`, which names nothing. Every relative TypeScript
+import resolved to no file and was counted unresolved — and the asset case increment 7b exists for would
+have silently produced zero edges.
+
+The resolver now tells the two shapes apart by the leading `.` or an embedded `/`, which a dotted module
+name never has. A relative path is joined to the importing file's own directory with `.` and `..`
+resolved, then matched whole. Three spellings of one file are accepted — as written with its extension,
+without one, and as a directory holding an `index` — because those are the forms every JavaScript
+toolchain agrees on. A `tsconfig` alias, a package `exports` map, and a bundler rewrite are not resolved,
+because guessing at one would put a file in the graph that nobody imported.
+
+A path built at run time records nothing. The lexer keeps a template's `${...}` as written and emits it
+as text like any other string, so an interpolated path is rejected where it is pushed — while
+`` require(`./m`) ``, a template with no interpolation, is a static path and is still recorded.
+
+Commands: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings` (clean),
+`cargo test --all-targets --all-features` (860 passed, 0 failed), `./scripts/verify-repository.sh`.
+
+### Increment 7b: an asset is a fact about code, and the scan already knew it was there
+
+`ASSET_LABEL`, its schema, and its resolution. `GRAPH_SCHEMA_VERSION` is 7. Six tests in `build`, one
+end to end through a real build and a real graph in `project`.
+
+**Nothing in the scanner changed, which is the whole point.** A `.png` still holds a NUL byte in its
+first 8 KiB, is still `SkipReason::Binary`, and is still never read, sniffed, or analyzed. Section 17.2
+is satisfied exactly as written. What changed is that an import naming it is now resolved, and the
+record it produces exists because **analyzed source references the path** — not because the scan found a
+file.
+
+The scan had already recorded what was needed. A skipped file leaves a `SkippedSource` carrying its path
+and its reason, so an asset asserts only what is known: something at this path was imported, it was
+skipped, and this is why. Duration, codec, and resolution are absent because reading them means opening
+the file, which is the thing forbidden and which nothing about an import requires.
+
+Identity and ownership follow `Directory` rather than `File`, because an asset is the same kind of thing:
+observed by the scan, read by no analyzer, and identified by its path. `existing_asset` keeps the
+identifier across a rebuild, one path is one record however many components import it, and the tree unit
+owns it — owning it through one importing file would delete it when that file stopped importing it while
+another still did.
+
+Two refusals are tested rather than described:
+
+- **an excluded file is not reachable through an import.** `Ignored` and `Sensitive` never become
+  assets. The exclusion is the decision, and a route into the graph that bypassed it would make
+  `.gitignore` and the sensitive list advisory rather than binding. Only `Binary` and `TooLarge` qualify,
+  which are the two reasons that mean "a real file nobody read";
+- **only a relative path names an asset.** `react` and `a.b.C` name a module through a resolution rule
+  this build does not implement, so matching either against a skipped file would be a guess. There is no
+  `index` fallback and no extension guessing either: `./logo` is not `./logo.png` to any toolchain
+  without a loader configured, and inventing that rule would attach a component to a file it does not
+  import.
+
+The end-to-end test writes a real PNG signature, builds the project, and asserts the shape a query
+answers: `MATCH (f:File)-[:IMPORTS]->(a:Asset)` reaches the image, the sibling module is reached by the
+same relation with a `File` on the other end, and `react` reaches neither.
+
+One relation for both, not two. An asset import and a module import are the same syntactic fact, and the
+label is what separates them — which is how a Cypher reader would ask the question anyway.
+
+**What is left of the original 7b** is the framework layer itself, now increment 7c. `FrameworkAnalysis`
+carries `frameworks`, `endpoints`, and `uninterpreted`, and `trait Framework`'s only fact method is
+`endpoints`, so a `Component` record of its own needs that widened. The asset requirement did not need
+it: a `.tsx` file is the component in the convention every one of these frameworks follows, and
+`File -[:IMPORTS]-> Asset` is the join that was asked for.
+
+Commands: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings` (clean),
+`cargo test --all-targets --all-features` (866 passed, 0 failed), `./scripts/verify-repository.sh`,
+`./scripts/verify-workspace.sh`.
+
+### Increment 4: Python, whose blocks are not delimited by anything
+
+`python_lexer.rs` and `python.rs`. 19 tests in the analyzer, 13 in the lexer.
+
+**The lexer emits `Indent` and `Dedent` where every other language has a brace.** Indentation is not a
+character to count; it is a comparison against the enclosing line. Resolving it once in the lexer means
+the analyzer reads the same shape it reads for Java or TypeScript, rather than carrying a column on every
+declaration and comparing against its parent at each site that asks.
+
+Three rules decide where a block ends, and each one was a bug before it was a test:
+
+- **a newline inside brackets is not a newline.** `f(\n  a,\n)` is one logical line. The first attempt set
+  the at-line-start flag on any newline, so the flag stayed on until the bracket closed and then the first
+  real newline after the `)` was consumed as a blank line by the indentation measurement — the statement
+  and the declaration after it ran together;
+- **a comment-only line produces no newline at all.** Leaving its newline behind made it a logical one,
+  so a comment between two methods ended a statement that had already ended — an extra empty statement in
+  the middle of a class body;
+- **a file ending inside a block still closes it**, or the last declaration waits for a `Dedent` that
+  never comes and every member of a trailing class is lost.
+
+A triple-quoted string is one token, because a docstring is the first thing in most bodies and holds `#`,
+quotes, and blank lines. An f-string's replacement field is tracked like a template literal, and the
+quotes inside it belong to it: pushing only the content turned `{a['k']}` into `{a[k]}`, a different
+expression.
+
+**A relative import keeps its dots.** `from . import x` records `.` and `from ..pkg import y` records
+`..pkg`. Dropping them names a different module and a plausible one, which is worse than naming none.
+
+**An instance attribute is not a declaration.** `self.total = 0` names something every reader would, and
+at syntactic precision there is no telling it from an assignment to something else called `self`, nor one
+declaration from a reassignment in another method. A class body's bindings are recorded because they are
+unambiguous.
+
+#### A test that asserted the opposite of its own name
+
+`a_file_no_analyzer_reads_is_recorded_rather_than_dropped` used a `.py` file as its example of an
+unsupported language. Python gaining an analyzer made it assert the reverse of what it was written for,
+and it would have kept passing the two lines under it. It now uses Markdown — named so a report can say
+what it is, and a prose format no structural analyzer is ever coming for. The comment says why, so the
+next analyzer does not silently invalidate it again.
+
+Commands: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings` (clean),
+`cargo test --all-targets --all-features` (898 passed, 0 failed), `./scripts/verify-repository.sh`.
+
+### Increment 5: Go, and the receiver no other language here writes
+
+`go_lexer.rs` and `go.rs`. 15 tests in the analyzer, 8 in the lexer, and one in `build` for the edge.
+
+**A method states its own owner.** `func (s *Service) Do()` declares the method *and* says what type it
+is on, in the declaration itself. Every other language in this module puts a method inside its type's
+body, so containment says whose it is; Go's methods may live in any file of the package, and often not the
+one the type is declared in.
+
+So the method is recorded at file scope with its `target` naming the receiver's type, and `build` draws
+the `FOR_TYPE` edge from it — the same edge a Rust `impl` block produces. That condition was
+`Implementation` only and is now `Implementation | Method`, which is additive: nothing else sets a target
+on a method, because every other language answers the question by containment.
+
+What is deliberately **not** done is inventing a grouping declaration to hold the methods. Rust has an
+`impl` block because somebody wrote one; manufacturing one here would put a declaration in the graph that
+appears nowhere in the source, and a test asserts none is created. The pointer is dropped from the target,
+because `*Service` and `Service` are one type to a reader asking what methods it has.
+
+#### Semicolon insertion, left out and then required
+
+The lexer's first version said implementing it "would add a rule with no reader", on the reasoning that
+braces delimit every body. That is wrong, and three tests failed in the same way to prove it: Go
+terminates **a grouped declaration and a struct field with the inserted semicolon**, not with a brace. So
+`const ( A = 1 / B = 2 )` had no boundary between `A = 1` and `B`, `Name string` after an embedded field
+read `string` as a second embedded type, and an interface's second method name was consumed as part of the
+first one's result type.
+
+It is now implemented as the specification states it, and the analyzer's field, value, and result-type
+boundaries are the semicolon rather than a guess about what token comes next. The module documentation
+says so instead of claiming the opposite.
+
+A raw string in backticks is the one form nothing else here has: it honours no escape and spans lines, so
+one holding `{`, `"`, or `//` must not unbalance the file or start a comment. A rune literal is consumed
+for the same reason — `'}'` read as punctuation closes a body that is still open.
+
+`InterfaceImplementation` is **not** declared. Go satisfies an interface implicitly, so stating one needs
+a type checker; declaring the fact would advertise coverage no syntactic analyzer can have.
+
+Commands: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings` (clean),
+`cargo test --all-targets --all-features` (922 passed, 0 failed), `./scripts/verify-repository.sh`.
+
+### Increment 6: C and C++, where the import statement is a preprocessor directive
+
+`c_lexer.rs` and `c.rs`, registered for `c`, `cpp`, and `objcpp`. 20 tests in the analyzer, 11 in the lexer.
+
+**A directive is one token, not punctuation.** `#include <vector>` is this language's import statement, and
+its argument is a header name that only *looks* like a comparison. Lexed as punctuation it becomes `#`,
+`include`, `<`, `vector`, `>`, and reassembling a path from that means deciding — in the analyzer, at every
+call site — whether a `<` opened a header name or a template argument list. So a directive line is one
+token carrying its name and the rest of its logical line as written, and the code between directives is
+tokenized normally.
+
+**Both arms of a conditional are read.** `#ifdef` cannot be evaluated without the build's flags, and a
+declaration inside a branch is a declaration the source contains. Reading one arm means picking a build;
+reading neither loses whole files of platform-specific code. So a graph may hold two declarations no single
+build compiles, which is stated rather than hidden.
+
+**An out-of-line definition names its class the way Go's receiver does.** `void Service::Do() { … }` is
+recorded with `Service` as its target, so `build` draws the same `FOR_TYPE` edge without knowing which
+language wrote it — the mechanism added for Go, reused without change.
+
+Four defects the tests caught, each a rule that looked right:
+
+- `typedef int (*Callback)(void);` named the alias **`void`**. The declarator is in the first parenthesis
+  group and the parameter list in the second, so a later group must not overwrite the name;
+- a **union's members were file-scope constants.** The field-or-constant question was decided on `Struct`
+  alone, and a union holds fields exactly as a struct does;
+- `using namespace std;` declared a constant called **`std`**, by falling through to the declarator rule.
+  A `using` that brings a name into scope declares nothing and is consumed;
+- `struct S *p;` declared nothing at all. The type keyword names a type rather than declaring one, and the
+  declarator after it is still a declaration — so it is read rather than skipped.
+
+**A macro's expansion is absent rather than guessed at.** `DECLARE_CLASS(Foo)` declares a class in many
+codebases and is a call here, because expanding it means implementing the preprocessor and knowing the
+build's flags. `#define NAME` is recorded as a `Constant`, which is the part that is written down.
+
+`objcpp` is registered as its own language rather than folded into `cpp`, because a file using Objective-C's
+message syntax and `@interface` yields its C++ declarations and not its Objective-C ones. A report can name
+that; folding it in would report coverage the analyzer has not got.
+
+Commands: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings` (clean),
+`cargo test --all-targets --all-features` (953 passed, 0 failed), `./scripts/verify-repository.sh`.
+
+### Increment 7c: the web layer, and the first analyzer honest enough to call itself heuristic
+
+`framework/react.rs`, `Component` and `Recognition` on the framework layer, `COMPONENT_LABEL`, and
+`DECLARED_BY`. `GRAPH_SCHEMA_VERSION` is 8. 9 tests in the analyzer, 2 in `build`.
+
+The layer carried one fact kind — `endpoints` — and now carries two. `trait Framework` gained
+`components`, defaulted to none so an analyzer for a framework with no such concept does not have to say
+so. A route holder is not a component: one is reached by an HTTP request from outside the program, the
+other is rendered by something else inside it.
+
+**A record of its own, not a second label on the declaration.** The tempting alternative was to add
+`Component` to the `Function` node the language analyzer already wrote. That fails on ownership: a
+framework analyzer declares its own version, and section 11.3 lets a change set withdraw only its own
+contributions — so a label on somebody else's record could not be withdrawn when the framework analyzer's
+version moved. `Endpoint` settled this already, and the same answer holds.
+
+`DECLARED_BY` rather than `HANDLED_BY`, because the two say different things: an entry point is *served
+by* a handler it names, and a component *is* its declaration seen through a framework's eyes. One relation
+for both would make "what serves this route" and "where is this component written" the same question.
+
+#### The first `Heuristic` analyzer, and why that is the honest class
+
+Spring's precision is `DeterministicSyntactic` because a route is written down: `@GetMapping("/x")` says
+what it is. A React component is mostly a **convention** — a capitalised function — and `Wrapper`,
+`Fragment`, and `Layout` are all names a helper might have. So this analyzer declares
+`PrecisionClass::Heuristic`: "pattern-based, so a fact may be wrong in ways the analyzer cannot detect".
+
+That is the first use of the class, and it is what section 17.3 exists for. Two refinements keep it from
+being a blunt instrument:
+
+- **recognition is carried per component**, not taken from the analyzer's class. A class extending
+  `Component` is `declared` and a capitalised function is `convention`, because one analyzer knowing some
+  facts exactly and others by convention is the ordinary case — collapsing them would make the exact ones
+  look like guesses;
+- **the evidence follows.** A `declared` component is `Extracted`; a `convention` one is `Inferred` with a
+  score of 0.8. Reporting a capitalised function as extracted would say the source declared what it only
+  implied. `Score::literal` was added for the constant, mirroring `NonEmptyText::literal` and for the same
+  documented reason: an infallible fallback without `unwrap`, crate-internal so runtime data cannot reach
+  it.
+
+The capitalisation rule is the one **JSX itself enforces** — `<Card />` is a component and `<div />` is a
+tag — so it is the framework's convention rather than one invented here, which is why it is worth reading
+at all. `SCREAMING_CASE` is excluded: `MAX_RETRIES` is a constant by every convention in the language.
+
+Recognition requires an import of `react`, `react-dom`, or `next/`. Without it the signal would be "this
+file declares a capitalised function", which every file in every language does. A `.vue`, `.svelte`, or
+`.astro` single-file component is **not** read: each is its own grammar with a template section this build
+has no reader for, so such a project gets no components and an honest capability report rather than a
+partial list that looks complete.
+
+Commands: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings` (clean),
+`cargo test --all-targets --all-features` (964 passed, 0 failed), `./scripts/verify-repository.sh`.
+
+### Stage 19 closed
+
+Ten languages analyzed — c, cpp, objcpp, go, java, javascript, kotlin, python, rust, typescript — and 69
+named. Two framework analyzers, spring and react, on a layer that now carries entry points and components.
+Imports are graph facts for the first time, and a file the scanner skips is an `Asset` when analyzed source
+imports it.
+
+Four defects were found in code that already existed, each passing its own tests at the time:
+
+1. `FactKind::ImportExport` was declared by two analyzers and produced by neither — Stage 18's defect, one
+   fact kind over;
+2. `imported_file` normalized dots to slashes, which is right for `a.b.C` and destroyed `./assets/logo.png`;
+3. `a_file_no_analyzer_reads_is_recorded_rather_than_dropped` used a `.py` file, so Python gaining an
+   analyzer made it assert the reverse of its own name;
+4. the Kotlin analyzer's documentation claims the package appears on every qualified name, and the parser
+   discards it. **Still open**, and recorded above: fixing it re-mints every Kotlin record in every existing
+   database, which is a migration to run deliberately.
+
+### Recorded decision: `web` is a layer above TypeScript, not a replacement for it
+
+Raised: that the frontend work might be better factored as `web` than as TypeScript and JavaScript.
+Right about where the facts belong, and it does not remove the language increment.
+
+`framework::analyze` takes `&FileAnalysis` and nothing else, and only a language analyzer produces one.
+Until a TypeScript analyzer exists there is no `FileAnalysis` for a `.tsx` file, so a `web` analyzer has
+nothing to read. The two are different layers and one feeds the other; `web` is additive.
+
+What is right is that a component, a route, and an asset reference are **not language facts**, which is
+the argument this layer's own documentation already makes about `@GetMapping` meaning nothing to Kotlin.
+So they belong beside `spring` rather than inside a TypeScript analyzer, and `spring` shows the shape:
+`Endpoint` and `HANDLED_BY` are HTTP routing, so **half of "web" is already built, on the JVM side.**
+
+Two consequences worth recording now:
+
+- if analyzers are ever split into independently released units, the split is by **layer first**: a web
+  crate holds `spring`, `react`, and the rest across every language they are reached from, and a
+  TypeScript crate holds the lexer and the item extraction. A single `nostdb-analyzer-web` holding both
+  would put a lexer in a crate named for a domain, and the next language reaching those frameworks
+  would need the framework knowledge written a second time — the exact cost this layer exists to avoid;
+- the framework layer currently carries **one fact kind**. `FrameworkAnalysis` holds `frameworks`,
+  `endpoints`, and `uninterpreted`, and `trait Framework`'s only fact method is `endpoints`. Components
+  and asset references need that widened before 7b can land, which is part of 7b's cost rather than a
+  surprise inside it.
+
+## Stage 20 scope
+
+Asked: extract API endpoints, database entities, and their schema from a Spring Boot project. The first
+works; the rest do not, and the reason they do not is where this Stage starts.
+
+`spring.rs` interprets eight annotations, all of them routes. `@Entity` and `@Table` are reported
+**uninterpreted** — by name, which is the honest record and the AI-fallback signal. Reading them
+deterministically runs into `FactKind` having eighteen members, every one a code concept, with nothing for a
+table.
+
+**The direction chosen, and it routes around that entirely:** relation types are not pre-specified in Core,
+so the Skill carries **presets** — a vocabulary the model's proposals follow and the Engine validates. A
+preset may be added or modified without touching Core.
+
+### Why the premise holds
+
+`RelationName` is `validated_name!` — an identifier with a reserved-word check and no list. The
+`CONTAINS`/`CALLS`/`FOR_TYPE` constants in `build.rs` are the **builtin analyzer's vocabulary**, not a
+Core-wide closed set. An edge schema is expressible in the language too:
+`schema Name(Source -> Target) { … }`. `build.rs` declares none only because `CONTAINS` legitimately runs
+between five different shapes, which one constraint cannot describe — a preset relation with one shape has
+no such problem.
+
+And `FactKind` does not apply on this path. It is part of `AnalyzerCapability`, which a **deterministic
+analyzer** registers to say what it extracts. An AI contribution registers none: its owner is
+`@by ai "<contract-digest>"`, its evidence carries `method: ai_inferred` and `confidence: inferred(score)`,
+and no fact kind is named. So the closed enum that blocks a builtin JPA analyzer does not block this.
+
+### What a preset is for, in the spec's own words
+
+`nostdb-spec/docs/NOST_LANGUAGE.md` states a consequence it accepts rather than solves:
+
+> A record MAY name a schema that is never declared. (…) a misspelled schema name is indistinguishable from
+> an intentional bare label, and it silently becomes an unvalidated label. **No syntax can tell the two
+> apart while schemas remain optional.**
+
+A preset is what fixes the vocabulary on the **producing** side, which is the only side where the two can
+be told apart. Without one, a model proposing `Entity` on Monday and `JpaEntity` on Tuesday produces two
+unvalidated labels and no error, and the graph holds both readings for ever.
+
+### Route A, and the mechanics it actually has
+
+Records reach the graph through `nostdb apply`, whose own help already says an AI Skill proposes one. That
+path is complete today and validates the generation, the endpoints, the ownership, and the evidence.
+
+Schema **declaration** has no route through a change set: `GraphOperation` has `UpsertNode`, `UpsertEdge`,
+`RemoveContribution`, `ResolvePlaceholder`, `UpsertLink`, and `RemoveLink`, and `build.rs` says why there is
+no seventh — "a change set carries contributions and validates their owner, and a thing with no owner does
+not fit it". Schemas are unowned.
+
+**That does not block the Stage**, because a record may name an undeclared schema and schema validation is
+soft. So a preset's records apply today, and declaring the preset's schemas is a separate act through the
+canonical `.nost`. Route B — a change-set operation for a schema — would need schema ownership decided
+first, which is the same open question as retiring a superseded owner.
+
+### The boundary this must not cross
+
+A preset is a **vocabulary and a validation target**. The Skill must not derive facts from one AI-free: that
+would be a second analyzer, reading annotations the Engine's own analyzers do not read, and the root
+contract's rule that an AI-free action has the CLI do the work exists to prevent exactly that. The
+interpretation is the model's, and the validation is the Engine's — including validating the preset itself,
+which is a `.nost` document `nostdb check` reads.
+
+| Increment | Content | Status |
+| --- | --- | --- |
+| 1 | this scope, the preset format, and a JPA preset the Engine validates | DONE |
+| 2 | the Skill surface: listing presets AI-free, and proposing with one | DONE |
+
+### Increment 1: the preset is a `.nost` document, so the Engine validates it
+
+`skills/nostdb/presets/jpa.nost` and `presets/index`, with `scripts/presets.sh` reading them and
+`tests/presets.test.sh` in the repository verifier.
+
+**A preset is a `.nost` file and nothing else**, which is what keeps the Skill from growing a reader. The
+suite hands each one to `nostdb check` when an Engine is on the path, and the JPA preset reports `valid`. A
+malformed preset therefore fails before it is ever offered to a model, and the Skill validates nothing
+itself.
+
+The index is pipe separated rather than JSON, because the script reading it is `/bin/sh` and this repository
+ships no `jq`. A JSON index would mean a dependency an install cannot assume, or a parser written in shell —
+and a parser in the Skill is the thing this boundary exists to avoid.
+
+The vocabulary is six schemas: `Entity`, `Column`, `Repository`, and the edges `HAS_COLUMN`,
+`REFERENCES_ENTITY`, `SERVES`. Two decisions worth recording:
+
+- **one association relation with a `cardinality` property, not four relation types.** `MANY_TO_ONE` and
+  `ONE_TO_MANY` are the same fact read from either end, and a query asking what an entity references would
+  otherwise have to name every direction to avoid missing one;
+- **`table` and `column` are optional.** `@Entity` alone is legal, and the table name then follows from the
+  provider's naming strategy — configuration this graph has not read. Absent says "not written down", which
+  is a different claim from a guess at what the provider would pick.
+
+Two rules the suite enforces, and both are about a schema being **unowned**:
+
+- **no preset declares a label a build already writes.** A preset sharing a name with `File`, `Endpoint`,
+  `Component`, or any item label is replaced on the next build; the preset would vanish and the only sign
+  would be a warning;
+- **no preset declares a label called `Schema`.** NostDB already has schemas — a preset is made of them —
+  and `MATCH (s:Schema)` would mean two things at once. This is the naming collision the question that
+  opened this Stage walked straight into.
+
+### Increment 2: listing is the Skill's, checking is the Engine's, applying is the model's
+
+Three actions, and the split between them is the boundary:
+
+| Action | AI usage | Who does the work |
+| --- | --- | --- |
+| `/nostdb preset` | none | the Skill lists its own files; `preset-check` hands one to `nostdb check` |
+| `/nostdb preset jpa` | required | the model interprets, the Engine validates |
+
+`preset-apply` sits beside `query-natural` and `enrich` in the dispatcher's refusal, and the comment there
+says why: **deriving a fact from a preset without a model would make the Skill a second analyzer**, reading
+annotations the Engine's own analyzers do not read. That is exactly what the AI-free rule prevents, and a
+preset is the most tempting place to break it — the vocabulary is right there, and `@Entity` looks easy.
+
+A preset is chosen **by the Engine's own report**, not by naming a framework. A build says which annotations
+it saw and did not interpret, and `presets.sh for Entity` answers which preset covers one. Naming the
+framework would need a list of frameworks this build knows of and cannot read, which section 4 forbids by
+another route — the same trap `framework.rs` documents about reporting uninterpreted annotations by name.
+
+`presets.sh for` matches a whole name between commas, so `Id` does not match `GeneratedValue`. A substring
+match would claim a preset for an annotation nobody wrote a schema for.
+
+One bug found while writing it, and it is an awk one worth remembering: assigning to `$1` to trim it makes
+awk **rebuild `$0` with its output separator**, so the `|` the format is made of was gone by the time the row
+was printed. Trimming into a variable instead leaves the record intact.
+
+### Stage 20 closed
+
+Records reach the graph through `nostdb apply`, whose help already said an AI Skill proposes one. Schema
+**declaration** still has no change-set operation, and does not need one: a record may name an undeclared
+schema and validation is soft, so a preset's records apply today. Route B — a seventh `GraphOperation` —
+stays unopened, and would need schema ownership decided first.
+
+Commands: `./scripts/verify-repository.sh` (skills), and the preset suite run separately with an Engine on
+the path so `nostdb check` reads every preset.
