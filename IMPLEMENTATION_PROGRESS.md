@@ -1783,6 +1783,40 @@ expects, wrote `checksums.json` from what the assembly recorded, and ran the lau
 That is the whole chain except the two acts that need authorization, and it is what makes the claim
 "every install route reports compatible version data" a result rather than an intention for this route.
 
+## Diagnosed: the provider tests shared one path in `/tmp`
+
+Root CI failed a third time in `nostdb-core`'s `provider_process` tests, and this time the diagnostic
+named the cause: `Text file busy (os error 26)` starting `/tmp/nostdb-provider-handshake.sh`.
+
+The test helper built that path from the test's **label alone**, in a directory every test and every
+concurrent run shares. Tests in one binary run in parallel, so one could write a script while another
+was executing it — which the operating system reports as `ETXTBSY`. Each test also removed the shared
+path when it finished, so a slower one could lose its program mid-run.
+
+Fixed by making the path unique per script, with the process id and an atomic counter. Twelve runs of
+the module to confirm it is stable rather than lucky.
+
+### This is probably what the earlier failure was
+
+The first failure in this module was a broken pipe, and it was "fixed" by accepting either of two
+legitimate messages — the write failing or the read finding end-of-file. That was not wrong: both mean
+the provider is gone, and pinning which one appeared was pinning the scheduler.
+
+But it was the smaller of the two things worth doing, and it left the cause unfound. A child whose
+program is overwritten or removed mid-exec dies, and the parent's next write finds a closed pipe —
+which is exactly the symptom. Two failures, one shared path, and the first fix made the symptom
+tolerable instead of asking why a provider had vanished.
+
+Recorded rather than quietly superseded, because the lesson is about the fix and not the bug: a test
+that accepts a second outcome has stopped asking a question, and that is worth doing only when the
+question has an answer.
+
+### The daemon flake is still separate, and still unexplained
+
+`a_named_database_is_queried_through_the_daemon` binds a per-user endpoint rather than writing a
+script, so nothing above touches it. It failed once locally after the pull and has passed every run
+since, and the diagnostics added for it did not fire — so it is not the path they instrument.
+
 ## Decided: a Skill's surface is its own
 
 Requested directly, and it relaxes an invariant the root contract stated. Recorded here because a
