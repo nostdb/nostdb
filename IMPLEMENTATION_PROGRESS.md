@@ -74,7 +74,7 @@ requirements.
 | 12 | DONE | npm, Homebrew, and GitHub distribution gates | Stages 8 through 11, plus connected `nostdb-distribution` and `homebrew-tap` |
 | 13 | DONE | Language-neutral analysis: every project builds a graph, with or without an analyzer | Stage 7 |
 | 14 | DONE | One workspace, one set of pins: a child depends on the sibling revision the root pins | Stage 12 |
-| 15 | IN_PROGRESS | A second analyzer: the boundary that holds one, and Kotlin | Stage 13 |
+| 15 | DONE | A second analyzer: the boundary that holds one, and Kotlin | Stage 13 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -472,6 +472,16 @@ automatically, because `git ls-files` does not descend into a gitlink.
 Root CI required every connected child to provide an executable
 `scripts/verify-repository.sh`, but the local verifier did not check it, so a
 local pass did not imply a CI pass. The local verifier now checks it too.
+
+### The Stage 14 check earned itself on its first real round
+
+Re-pinning for this Stage failed workspace verification: the Core bump moved `nostdb-server`, and
+`nostdb-cli` was left pinning the previous one. Without the check added last Stage that would have
+shipped as a client for one revision of a daemon on another revision of the Engine — the exact defect
+it was written to refuse, caught on the first round where it could have recurred.
+
+Worth recording because it is the cheapest kind of evidence there is: a check whose value was argued
+for in prose one Stage ago and demonstrated one Stage later.
 
 ### Verification
 
@@ -6558,10 +6568,10 @@ should not know it.
 
 | Increment | Content | Status |
 | --- | --- | --- |
-| 1 | this scope, and the audit of what one analyzer hid | IN_PROGRESS |
-| 2 | ownership and provenance per producer, so two analyzers can coexist | PENDING |
-| 3 | the Kotlin lexer | PENDING |
-| 4 | Kotlin items, its declared capability, and fixtures | PENDING |
+| 1 | this scope, and the audit of what one analyzer hid | DONE |
+| 2 | provenance per producer; ownership recorded as blocked on the contract | DONE |
+| 3 | the Kotlin lexer | DONE |
+| 4 | Kotlin items and its declared capability | DONE |
 
 ### The audit: five places that know the analyzer is Rust
 
@@ -6619,3 +6629,100 @@ every `Owner::Analyzer` contribution for the units it rebuilds regardless of ver
 version bump is a migration with its own explicit step. It is not blocking this Stage — a second
 analyzer is a different *name*, not a different version — and it is recorded because adding the second
 analyzer is what made it visible.
+
+### Increment 2: provenance moved, ownership did not
+
+Three of the five sites the audit found were fixed, and all three are provenance:
+
+- the **parse cache key** names the analyzer for the file's language. Fixed to Rust, a Kotlin parse
+  would be stored under the Rust analyzer's identity, so bumping Kotlin would not invalidate Kotlin
+  parses and bumping Rust would invalidate them for nothing;
+- an **analyzed record's evidence** carries the version its own analyzer declares, read from the
+  declared capability rather than from a second copy of it;
+- a **declared link's evidence** names the scan. It named the Rust analyzer as the producer of a link
+  the settings declare — a language analyzer credited with finding something it never read.
+
+**Ownership is unchanged and still named `rust/1`.** That is wrong with a second analyzer and it was
+not changed, because it cannot be without deciding what the product contract has not decided.
+`GraphChangeSet::validate` enforces section 11.3 by rejecting a removal whose owner is not the set's
+own, so renaming the owner would leave every record an earlier build wrote owned by a name nothing can
+withdraw: `existing_unit` would not find them, fresh units would be minted beside them, and the graph
+would hold both readings of every file. The reason is written where the owner is defined, not only
+here, because that is where somebody will next be tempted to rename it.
+
+What makes this liveable rather than merely deferred is that the per-language identity is now in
+`Evidence`, which section 11.4 dedicates to provenance. The owner answers "who may replace this"; the
+evidence answers "who produced it, at which version". Only the first is stuck.
+
+### Increments 3 and 4: Kotlin
+
+A separate lexer rather than the Rust one with a flag. The two share a shape and almost nothing else,
+and a flag would branch at every difference — a change for one language would be a change to the
+other's tokenizer. What must not be duplicated is the analysis contract, and `FileAnalysis` is shared.
+
+Four traps the lexer exists for, each with a test that fails without the fix:
+
+- a **nested block comment** closes once. Rust's rule leaves the trailing `*/` as code and finds
+  declarations inside a comment;
+- a **`${...}` template** is brace-counted and recurses into a nested string, so `"${if (x) "}" else
+  ""}"` closes where Kotlin closes it. Losing that moves every following declaration into the wrong
+  scope, which is worse than missing one;
+- a **raw string** holds a lone quote and a brace, and four closing quotes close once rather than
+  opening another string;
+- a **backtick identifier** is never a keyword, so ``fun `class`()`` declares a function.
+
+Four more in the reader:
+
+- **`data class C` declares `C`.** A modifier and a declaration keyword are both plain identifiers, so
+  stopping at the first would name every `data class` in a project `class`;
+- **`fun interface Handler` declares an interface**, not a function named `interface`;
+- **an expression body has no terminator.** Kotlin has no statement separator, so nothing in the token
+  stream ends `fun f() = 1`. Without a bound, `g` becomes a call inside `f` and stops being a
+  declaration;
+- **`companion object` unnamed is `Companion`**, which is what a reference to it is written as.
+
+#### What it declares it cannot do
+
+`InterfaceImplementation` is deliberately **not** among its facts. `:` introduces a supertype list and
+Kotlin does not say which entries are interfaces, so `implements` stays empty and every supertype is
+reported as a reference. Declaring the fact would advertise coverage it cannot have, which is the one
+thing a capability declaration exists to prevent.
+
+A template's contents are not tokenized, so a reference written in `"${server.port}"` is invisible and
+an edge that could have come from it will not. Stated in the lexer rather than discovered later.
+
+A local `val` is not recorded: it is not something anything outside the function can refer to, and
+recording every one would bury the queryable structure in structure that is not.
+
+### The reported repository, before and after
+
+```text
+before   recorded 71 files, 71 with no analyzer      nodes 149   edges 148
+after    analyzed 48 files                           nodes 305   edges 373
+```
+
+34 classes, 35 methods, 71 properties, 8 functions, 4 enums, 4 interfaces, and the tree they sit in.
+`MATCH (c:Struct)-[:CONTAINS]->(m:Method) RETURN c.name, count(m)` answers, and so does `CALLS`.
+
+**72 references resolved and 241 did not**, and that is the declared precision rather than a defect.
+Most unresolved names are platform and dependency types — `String`, `UUID`, framework annotations —
+declared in source this build never read. A syntactic analyzer that resolved them would be guessing,
+and `build` leaves a name two records share unresolved rather than picking one.
+
+### Two tests were repointed, and one had gone stale by becoming wrong
+
+Two tests asserting that a Kotlin project analyzes nothing now use Ruby. The case each was written for
+moved rather than went away, and leaving them on a language that is now read would have made both pass
+for the wrong reason.
+
+One of them asserted the note contains `it analyzes rust` and **failed on a note that had become more
+correct** — `it analyzes kotlin, rust`. It now requires every language this build analyzes, and says
+that a third analyzer belongs in the list. A test that pins one item of a set it means to describe
+fails the moment the set grows, which reads as a regression and is the opposite.
+
+### Verification
+
+`nostdb-core` 747 tests, `nostdb-cli` 93, `nostdb-server` 28, every verifier, and
+`GRAPH_SCHEMA_VERSION` is 3 — a Kotlin file used to assert only that it existed, so a database built
+before this holds Kotlin records this build would not write, and reuse would keep them because the
+bytes did not change.
