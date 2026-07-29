@@ -76,6 +76,7 @@ requirements.
 | 14 | DONE | One workspace, one set of pins: a child depends on the sibling revision the root pins | Stage 12 |
 | 15 | DONE | A second analyzer: the boundary that holds one, and Kotlin | Stage 13 |
 | 16 | DONE | A recommendation that can be followed: the plugin source, and the bundled provider | Stage 12 |
+| 17 | DONE | A plugin repository declares itself: `plugins/*` and `nostdb.plugins.json` | Stage 16 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -6814,3 +6815,98 @@ than left to be discovered: a fix that is not published is a fix nobody has.
 `nostdb-cli` 96 tests and its verifier, `nostdb-distribution` 87 checks and its verifier, and an
 archive assembled locally holding both programs with three recorded digests, reproducible across two
 runs, with the launcher's own verification accepting the provider member.
+
+## Stage 17 scope
+
+Requested: a plugin lives at `plugins/*` rather than `reference/*`, a repository is recognised only when
+it holds `nostdb.plugins.json`, and that file does the mapping.
+
+`plugin_install_version` **1 to 2**. Version 1 recognised a plugin by a **path**: a fragment named a
+subdirectory, and any directory holding `nostdb-plugin.json` was installable. Version 2 recognises one
+by a **declaration**.
+
+### What the path-based rule cost
+
+Two things, and both are worth naming because neither is obvious from the symptom:
+
+- **any tree was a plugin.** A fork, a vendored copy, a test fixture — anything holding a manifest
+  somewhere inside it was installable, whether or not its author published it as a plugin;
+- **a path was part of the published command.** `#reference/view-webgpu` meant an author who
+  reorganised their repository broke every install command anybody had written down, and nothing would
+  say so. This Stage's own first act — moving `reference/` to `plugins/` — is exactly that break.
+
+An index makes the name stable and the directory an implementation detail. `#view-webgpu` keeps working
+across the move; the fragment names a key and the key names a place.
+
+### Why a bump, and why `supported` is `[2]` alone
+
+Section 4 of the manifest contract was **corrected in place** earlier in this workspace, when it began
+requiring `?ref=`, on the grounds that nothing had shipped against the old reading. That argument was
+available then and is not available here: version 1 is published in 0.1.0 and 0.1.1 and reported by both.
+
+What is true is that **no published build could install a plugin at all** — the GitHub provider was
+never bundled, so every install refused for want of one before reaching any of this. That makes the
+practical cost of the bump zero. It is not a reason to pretend the version did not change, and it was
+not used as one.
+
+Neither direction round-trips, so `supported` lists 2 only:
+
+- a version-1 source has no index, and version 2 refuses it;
+- a version-2 fragment names a key that version 1 would read as a directory path and fail to find;
+- a version-1 **record**'s `subdirectory` is the fragment a caller typed, not a directory an index
+  resolved. Reading one as version 2 would take that string for a resolved directory and be wrong about
+  where the plugin came from — the one thing the record exists to say.
+
+### The index is not part of the plugin
+
+It is read at step 4, before validation, because it decides *which* entries are the plugin: validating
+the whole repository first would refuse a source over a path in a directory the install never touches.
+
+And it is removed from the entries **before** planning rather than filtered afterwards. It only collides
+when a plugin sits at the repository root, and there it would otherwise be planned, read, digested, and
+written as one of the plugin's own files. The tree digest would then cover a file that decided what to
+install, and an unrelated edit to the index would report the plugin's bytes as changed.
+
+### Decisions inside the contract
+
+- **one declared plugin needs no fragment**; several with no fragment refuse and list them, because
+  choosing for the caller installs something nobody named;
+- **every mapping is validated**, not only the one being installed. An index with one unusable mapping
+  is one its author got wrong, and installing past it leaves the mistake for whoever asks for the other;
+- **`.` is the root and an empty path is refused.** An empty string is not the root spelled differently;
+  it is a mapping nobody wrote. A test of mine asserted the opposite and contradicted the contract I had
+  just written — the contract was right;
+- **the index name need not equal the manifest's name.** The index says what to fetch and the manifest
+  says what was installed, and both appear in the install report so nobody has to guess which a later
+  command wants.
+
+### Three fixtures that had stopped testing anything
+
+The bump made `plugin_install_version` 2 *supported*, and three places asserted 2 as the unsupported
+value:
+
+- the spec's `version_unsupported` fixture;
+- the CLI's `an_unsupported_record_version_is_reported_alone`;
+- every `record/invalid/*` fixture still declaring 1, each of which then failed on its version before
+  reaching the rule it exists for — a fixture rejecting for the wrong reason passes against a build with
+  the bug it was written to catch.
+
+The version fixtures are now named for their direction. `version_below_the_supported_range` covers
+version 1, which is what 0.1.1 wrote and what is on disk if anyone has one, and
+`version_above_the_supported_range` covers a downgrade. Keeping only the future case would have left the
+case the bump created untested.
+
+### The plugins repository checks both directions
+
+`scripts/verify-repository.sh` refuses an index naming a directory that is not there, one outside
+`plugins/`, or one holding no manifest — and refuses **a plugin directory the index does not declare**.
+The second is the one worth having: a plugin nobody declared is a plugin nobody can install, and its
+manifest, its entrypoint, and its tests all look exactly right.
+
+### Verification
+
+`nostdb-spec` 12 index fixtures with their own rule tripwire, `nostdb-cli` 104 tests including four new
+install-flow refusals, the plugins verifier proven to reject in both directions, and
+`nostdb --version --json` reporting `plugin_install_versions: [2]`.
+
+**Not published.** Like Stages 13 through 16, this reaches nobody without a release.
