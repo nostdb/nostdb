@@ -1839,6 +1839,59 @@ question has an answer.
 script, so nothing above touches it. It failed once locally after the pull and has passed every run
 since, and the diagnostics added for it did not fire — so it is not the path they instrument.
 
+## Reported: a Kotlin repository built to zero nodes
+
+`/nostdb .` succeeded on a 41-file Kotlin project and committed nothing.
+
+### That is the correct answer, and the report was the reasonable reading of it
+
+This build ships **one** deterministic analyzer, for Rust. Nothing in a Kotlin tree is analyzable, so
+`0 nodes, 0 edges` is a fact about the project rather than a failure — and `build` exits `0`, because
+exiting non-zero over it would break a pipeline that runs `build` before knowing what a repository
+holds.
+
+What made it read as a failure is that the note said only:
+
+```text
+note: no file has a language this build analyzes, so nothing was committed
+```
+
+True, and unactionable. A reader cannot tell from it whether they excluded their own sources by
+mistake or whether the language has no analyzer yet, and those have **opposite** fixes: one is a
+settings change, the other is waiting for a release. The note now names both sides —
+`it analyzes rust; this project is kotlin` — and when every file was skipped before classification
+there is nothing found to name, so it reports what it analyzes and lets the skip reasons answer the
+rest.
+
+`plan` already reported this correctly (`kotlin 2 files 91 bytes unsupported`), which is the part
+worth recording: the information existed on the same report object and `build` was not printing it.
+
+### Found while confirming it: argument order was load-bearing and undocumented
+
+`plan --format json .` was refused and `plan . --format json` accepted, because `split_project_path`
+looked at the first word only. `query` documents the opposite rule in the same file — options may
+come before or after its statement, since somebody reaching for `--format` after typing a long one
+should not have to move it — so the surface disagreed with itself about argument order.
+
+The refused spelling is the one `SKILL.md` documents for the enrichment step. It was refused by
+release 0.1.0 **and** by current source, and the dispatcher never emits it, so every check passed
+while the one command a reader would copy worked against neither Engine.
+
+Two checks were extended rather than added, because both already existed and both were weaker than
+they looked:
+
+- `every_advertised_path_argument_is_accepted` tried the path **first** only. It now tries both
+  orders. Writing it revealed a second trap: the summary line names `--format` for none of these
+  commands, so deriving the flag from the summary made the new order untested while the check read
+  as covering it. It reads the command's own help instead.
+- the Skill's suite ran every **emitted** command against a real Engine and never read its own
+  **prose**. It now requires a documented invocation to name its project with `--project`, and that
+  check is proven to fail on the line that shipped.
+
+The pattern in all three reports this round is the same. Nothing was unverified; each defect sat in
+the gap between two things that were each verified alone — a help text and a parser, a dispatcher and
+a document, a report object and what got printed.
+
 ## Reported from a real run: the Skill emitted a command the Engine refused
 
 `/nostdb .` configured a project and then failed with:
