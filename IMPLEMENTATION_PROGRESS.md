@@ -1840,6 +1840,93 @@ question has an answer.
 script, so nothing above touches it. It failed once locally after the pull and has passed every run
 since, and the diagnostics added for it did not fire — so it is not the path they instrument.
 
+## Release 0.1.1, and a gate that made a second release impossible
+
+Reported against the published 0.1.0: a repository still built to `0 nodes, 0 edges`. Correct for what
+was installed — everything Stage 13 landed was source-only, so nothing a user could install had it.
+0.1.1 is that work, released.
+
+### The number understates one thing, on purpose
+
+What a build produces changed: `Directory` nodes, a `precision` property, and `GRAPH_SCHEMA_VERSION`
+1 to 2, so the first build after this redraws the graph it holds. A patch number is still right,
+because the old output was a defect against `docs/PRD.md` section 17.3 rather than a design anybody
+chose — what 0.1.0 shipped was never the contract, and the rebuild is the cost of correcting it. The
+reasoning sits beside the version in `Cargo.toml` rather than only here.
+
+0.1.1 also satisfies the source-install route section 25.3 published and 0.1.0 could not: the package
+is now named `nostdb`, so `cargo install --git … --tag v0.1.1 --locked nostdb` resolves.
+
+### The release gate was circular, and only the second release could show it
+
+Every target refused with `the launcher is 0.1.0`. The gate required the input, the crate, **and**
+`nostdb-distribution`'s `package.json` to be one version before building.
+
+That cannot be satisfied. `nostdb-distribution`'s own verifier requires its `package.json` to match
+the `checksums.json` it ships, and `checksums.json` cannot exist until the release has been built and
+digested. So the launcher could not legally be bumped before the release, and the release would not
+start until it was.
+
+0.1.0 hid it completely: the launcher *started* at 0.1.0, so the two agreed for free. The cycle
+appeared on the first release that was not the first — which is the kind of defect no amount of
+verification on one release can surface.
+
+The launcher check is dropped, and nothing is lost. Its version decides which archive names it looks
+*up*, and that those are names the release actually wrote is exactly what its own verifier enforces
+by requiring the two documents to agree. Checking it in the workflow as well added no guarantee and
+made the process circular.
+
+### The same cycle again, one layer down
+
+With the gate fixed, two of four targets built and two refused with
+`ASSEMBLY_REFUSED: reports 0.1.1 and this release is 0.1.0`. `assemble-release.mjs` attests that a
+binary reports the version its archive is named for, and it read that version from the launcher's
+`package.json` — the identical constraint the gate had, in the script the gate was protecting.
+
+The split was informative rather than random: attestation is skipped when the binary cannot run on
+the host, so the two cross-assembled targets passed the check by not performing it. A release where
+half the targets are attested and half are not is stated in each recorded entry's `attested` flag,
+which is how this was legible at all.
+
+`assemble-release.mjs` now takes `--version`. What is attested does not weaken — the binary must
+still report the version its archive is named for — and the only change is who names it. Two checks
+were added: a binary that does not report the named version is refused, and a named version it does
+report assembles into the archive that version is named for.
+
+### The workaround that was refused rather than taken
+
+Pushing the launcher bump alone would have satisfied the gate. It was not done: it leaves a commit on
+`main` that fails its own verifier, and a launcher whose `package.json` says 0.1.1 while its
+`checksums.json` describes 0.1.0 archives would refuse every artifact it fetched. A window in which
+nobody happens to publish is not the same as a state that is safe to be in.
+
+### What was verified before anything became public
+
+The release was built as a **draft**, and every check below ran against the draft's own artifacts
+rather than against a rebuild of them:
+
+- all eight recorded digests re-computed from the assets they name, including the four binaries
+  inside the archives. No mismatches;
+- the `aarch64-apple-darwin` binary extracted and run: `engine 0.1.1`, 13 contracts, and a Kotlin
+  plus `.txt` project building to 4 nodes and 3 edges with the tree traversable;
+- the launcher packed with `npm pack`, installed from the tarball, and run — it fetched the released
+  artifact, verified it against the `checksums.json` it ships, and reported `engine 0.1.1`;
+- each of the four formula digests checked against the downloaded artifact rather than copied from
+  the checksums document on trust.
+
+Only then was the draft published, npm published, and the tap pointed at it. `checksums.json` in
+`nostdb-distribution` is the document the release wrote, copied unedited.
+
+The reported command, run against the registry afterwards:
+
+```text
+npx --yes --package=nostdb nostdb build --project .
+recorded   3 files, 3 with no analyzer for their language
+nodes      5 created
+edges      4 created
+note: it analyzes rust; this project is kotlin, markdown, unknown
+```
+
 ## Reported: a Kotlin repository built to zero nodes
 
 `/nostdb .` succeeded on a 41-file Kotlin project and committed nothing.
