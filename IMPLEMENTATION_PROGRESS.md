@@ -72,7 +72,7 @@ requirements.
 | 10 | DONE | Skills and AI enrichment workflow | Stages 7 and 9, plus connected `skills` |
 | 11 | DONE | Plugin manager and reference viewer | Stage 7, plus connected `plugins` |
 | 12 | DONE | npm, Homebrew, and GitHub distribution gates | Stages 8 through 11, plus connected `nostdb-distribution` and `homebrew-tap` |
-| 13 | IN_PROGRESS | Language-neutral analysis: every project builds a graph, with or without an analyzer | Stage 7 |
+| 13 | DONE | Language-neutral analysis: every project builds a graph, with or without an analyzer | Stage 7 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -6203,9 +6203,10 @@ decides whether a graph exists.
 
 | Increment | Content | Status |
 | --- | --- | --- |
-| 1 | this scope, and the conflict it resolves | IN_PROGRESS |
-| 2 | a source record for every scanned file, whatever its language | PENDING |
-| 3 | containment, so a graph with no analyzer is still navigable | PENDING |
+| 1 | this scope, and the defect it records | DONE |
+| 2 | a source record for every scanned file, whatever its language | DONE |
+| 3 | containment, so a graph with no analyzer is still navigable | DONE |
+| 4 | a file whose language cannot be named at all | DONE |
 
 ### This is a defect against the PRD, not a change to it
 
@@ -6272,3 +6273,113 @@ arrived at without anybody writing a list.
 - `cargo fmt --check`, `cargo check`, `cargo clippy --all-targets --all-features -- -D warnings`, and
   `cargo test --all-targets --all-features` pass in every touched repository.
 - Child CI is green, and root CI is green over the new pins.
+
+### Increment 2: the record an analyzer is not required for
+
+A file the scan keeps always leaves a record. Its path, language, and digest are the scan's, so this
+costs no read at all — `ScannedFile` already carried all three, which is what made the omission a
+decision rather than a limitation.
+
+Three things follow from separating *recorded* from *analyzed*, and each was a choice:
+
+- **`Unit` stores whether an analyzer read the file** rather than deriving it from the language's
+  precision. A covered language whose bytes could not be read also arrives unanalyzed, and deriving
+  it would count that file as analyzed and report coverage the build does not have.
+- **the record carries `precision`.** Section 17.3 requires that results not imply equal confidence
+  across languages, and `unsupported` on the record says the file is here and nothing read it —
+  which is a different claim from an analyzer having found no items in it. No new `PrecisionClass`
+  variant: 17.3 fixes that enum.
+- **evidence for a recorded file names the scan as its producer.** `Deterministic` and `Extracted`
+  still hold, and that is not a loophole: the path and the digest were read off the filesystem
+  rather than inferred, so the claim being made is exact.
+
+Coverage is unchanged. An unsupported file is still recorded in coverage as such, per section 17.2,
+and `structural` still stays short of `Complete`, because recording a file is not analyzing it.
+
+`recorded_files` sits beside `analyzed_files` in the report and in the CLI table. One number for both
+would either claim coverage the build lacks or hide the graph it committed — and a report reading
+`analyzed 0 files` above `nodes 41 created` looks like a contradiction until the second line is there.
+
+### Increment 3: a bag of files is not a graph
+
+The minimum in 17.3 is satisfied by file records alone, and file records alone are not worth
+querying: a project with no analyzer for its language would hold records nothing connects, and
+"which files are under `docs/`" would be a string comparison rather than a traversal. Directory nodes
+and `CONTAINS` edges are deterministic, language-neutral, and derived from paths, so they spend
+nothing.
+
+**The tree has a source unit of its own.** A directory outlives any one file in it, so owning it
+through a file would delete `docs/` when `docs/api.md` was removed and leave its siblings parentless.
+Three consequences followed, and every one was found by a test rather than reasoned about first:
+
+- the tree unit must count as **present**, or every build reports it departed and redraws everything;
+- it must **withdraw before being redrawn**, or a directory whose last file was deleted is never
+  removed — the graph keeps claiming a directory that is gone;
+- it must withdraw **only when there is a tree**, or a project holding nothing commits a change set
+  carrying a lone withdrawal and bumps the generation on every build over a project that never
+  changes.
+
+A directory is **not** a neighbour in an analysis packet. Its whole content is its path, the packet
+already carries the path, and every file has a parent — so without the exclusion every packet in the
+repository would name the tree's unit and spend tokens describing what the model can read off the
+file name. That is the sense in which an analyzer is a token-efficiency device: the same reasoning
+decides what is worth sending.
+
+### Increment 4: an extension decided whether a file existed
+
+`.txt` is in no language list and never will be in every language list. Classification ran *before*
+the read, so a file whose extension named no language was skipped — and a documents-only project of
+`.txt` files built nothing at all. Increment 2 fixed the Kotlin case and left this one, because
+Kotlin has a name in the list and plain text does not.
+
+Extending the list until every document form appeared in it is the allowlist section 4 forbids,
+arrived at one extension at a time. So a file whose language cannot be named is kept and named
+`unknown`, whose precision is `Unsupported` because that is the truth.
+
+Coverage reports it `Unclassified` rather than `Unsupported`. Section 17.2 requires both, and they
+are different facts: one says no analyzer covers this language, the other says there was no language
+to look up. Collapsing them would lose the distinction the section asks for.
+
+Moving the read earlier also corrected a mislabel nobody had noticed: a `.png` was reported
+`Unclassified` when `Binary` is what it is, because nothing had looked at the bytes. What it costs is
+reading text files that will hold no facts, bounded by `max_file_bytes`. **`.env` and its family are
+caught by name before any read**, and that check did not move, so recording unclassified text never
+reaches a secret.
+
+### A version bump is the migration
+
+`GRAPH_SCHEMA_VERSION` guarded only the parse cache. Reuse compares digests, an unchanged tree is
+never read, and so nothing would ever rewrite records that predate a new property: a database written
+before `precision` existed would have kept its old shape forever, and no test would have noticed
+because every test starts from an empty graph.
+
+It is now recorded on every record and reuse requires a match, so a bump makes the next build redraw
+what it holds. Found while writing increment 3, having been introduced by increment 2.
+
+### What this changes for an existing database
+
+Every graph gains directory nodes, including a Rust project's. Item records and the edges between
+them are unchanged — the 712 Core tests covering the Rust analyzer are the evidence — and the tree is
+added alongside them. The first build after this change rewrites what it holds, by design.
+
+### Verification
+
+Run in `nostdb-core`, then in `nostdb-cli` against the new pin, then at the root:
+
+```bash
+cargo fmt --check && cargo check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets --all-features
+./scripts/verify-repository.sh
+./scripts/verify-workspace.sh
+```
+
+`nostdb-core` 712 tests pass, `nostdb-cli` 93, and both verifiers pass. The reported repository — a
+Kotlin service with 74 files — builds **149 nodes and 148 edges** where it built nothing, and its tree
+traverses:
+
+```text
+recorded   71 files, 71 with no analyzer for their language
+note: it analyzes rust; this project is css, kotlin, make, markdown, sql, toml, unknown, yaml
+note: 2 file(s) skipped: sensitive
+```
