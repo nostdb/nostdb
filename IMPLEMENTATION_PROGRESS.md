@@ -8970,3 +8970,67 @@ Two things the cascade found, neither predicted:
   the root's pin check exists to prevent. Server had to push first so the CLI could name both.
 
 Every Acceptance Criterion passes.
+
+## Release 0.1.4: the owner change reaches a published build
+
+Reported: a database still writes `@by analyzer "rust" "1"`, with the guess that npm had not been
+published. The guess was right. Everything from Stage 21 onward existed only in Git, and npm `latest` was
+0.1.3 — so every `npx nostdb` ran a build that predated the owner change.
+
+**0.1.4**, chosen over 0.2.0 when asked. The release number moved in ten places, and no contract version
+moved with it: `nost_language_version` and `nostdb_format_version` changed in Stages 28 and 29 for their
+own reasons and stay independent, which is the distinction `VERSIONS.md` exists to keep.
+
+### This release refuses what 0.1.3 wrote, and that is the intended behavior
+
+Neither contract lists its predecessor as supported. An existing `.nostdb` reports
+`NOSTDB_FORMAT_UNSUPPORTED` and is rebuilt; an existing `.nost` reports `NOST_VERSION_UNSUPPORTED` and is
+regenerated. The release notes say so first, before what changed, because that is what a reader upgrading
+needs.
+
+The database in the report is the first case. Refusing at the header rather than at an owner byte is what
+makes it a database to rebuild instead of one that looks corrupt.
+
+### Verified against the release binary, not against the source
+
+The archive was downloaded from the published release, its digest checked against the attached
+`checksums.json`, unpacked, and run over a two-file Kotlin project:
+
+```
+nostdb 0.1.4   nost_language 3   nostdb_format 2
+
+@nost 3
+@by "nostdb" unit "u_019fb1ea-…" {
+      producer_version: "9",
+```
+
+and the Stage 21 fix with it — `src/Service.kt` imports `com.demo.app.data.Payload`, which is declared in
+`Models.kt`, and the query returns that edge. 0.1.3 drew none, because no file is named `Payload.kt`.
+`File.package` carries `com.demo.app` and `com.demo.app.data`.
+
+The launcher was then exercised end to end: packed, installed from the tarball, and run. It fetched the
+archive from the public release, verified length and digest before writing, and produced the same build.
+
+### Two verifiers caught what the bump missed
+
+- `plugins` reported that `bin/nostdb-view` declares its own `VERSION`, a tenth place the release number
+  lives that a manifest-only bump would have left disagreeing with the manifest;
+- `nostdb-distribution` reported `package.json` at 0.1.4 against `checksums.json` at 0.1.3. That one is not
+  a miss to fix but an ordering: the checksums are written by the release workflow from the archives it
+  assembles. The repository was held back and bumped after the release existed, so it never pointed at
+  archive names nobody had written.
+
+### What could not be done here, and why
+
+**The artifacts cannot be built on one machine.** `release.yml` is a matrix run by hand, and its own
+comments record why: `assemble-release.mjs` packages a binary somebody else built, because "which
+toolchain built a published artifact is a release decision rather than a packaging one". The two Linux
+targets need Linux runners. The workflow was dispatched with `draft: true`, its default, and the draft was
+reviewed before publishing.
+
+**npm publish is blocked on authentication.** `npm whoami` returns `E401`, and a registry credential is
+not something to handle here. `latest` therefore still points at 0.1.3, which means the report that started
+this is still true for anyone installing through npm until that one command runs.
+
+Homebrew and GitHub are done: the tap points at the v0.1.4 archives with the digests the release recorded,
+and the release itself is published.
