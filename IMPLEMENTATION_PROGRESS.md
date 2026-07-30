@@ -9028,9 +9028,37 @@ toolchain built a published artifact is a release decision rather than a packagi
 targets need Linux runners. The workflow was dispatched with `draft: true`, its default, and the draft was
 reviewed before publishing.
 
-**npm publish is blocked on authentication.** `npm whoami` returns `E401`, and a registry credential is
-not something to handle here. `latest` therefore still points at 0.1.3, which means the report that started
-this is still true for anyone installing through npm until that one command runs.
+**npm publish took three attempts, and the first two diagnosed the wrong thing.** `npm whoami` returned
+`E401`; after logging in it returned `ujon` and publish still returned 403, naming "two-factor
+authentication or granular access token with bypass 2fa enabled". An OTP did not help, and the reason is
+that `npm profile get` reports **`two-factor auth: disabled`** — there was nothing for a code to satisfy.
+The token had `read-write` on `nostdb`, so it was not a permission either. What npm accepts for publishing
+is one of exactly two things, and a classic token is neither. A granular token with bypass-2FA published
+on the first try.
 
-Homebrew and GitHub are done: the tap points at the v0.1.4 archives with the digests the release recorded,
-and the release itself is published.
+Worth recording as a shape: the error named two acceptable auth methods, and the fix was to read that
+literally rather than to keep supplying the one it mentioned first.
+
+### Verified through npm, which is where the report came from
+
+```
+$ npm view nostdb dist-tags
+{ next: '0.0.4', latest: '0.1.4' }
+
+$ npx --yes nostdb@latest --version
+nostdb 0.1.4   nost_language 3   nostdb_format 2
+```
+
+and a build in an empty directory through `npx --yes nostdb@latest`:
+
+```
+@nost 3
+  @by "nostdb" unit "u_019fb1fa-…" {
+```
+
+The reported symptom was `@by analyzer "rust" "1"`. It is gone on the path the report came from.
+
+### Release 0.1.4 closed
+
+GitHub, Homebrew, and npm all carry it. Every one of the ten repositories is clean and synchronized, and
+`./scripts/verify-workspace.sh` passes.
