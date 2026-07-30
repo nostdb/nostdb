@@ -80,6 +80,13 @@ requirements.
 | 18 | DONE | Framework analyzers, and AI where none covers a framework | Stage 15 |
 | 19 | DONE | Builtin breadth: many languages named, six analyzed, and a decision about files that are not code | Stage 18 |
 | 20 | DONE | Skill presets: a vocabulary the Engine validates, for facts no deterministic analyzer can claim | Stage 19 |
+| 21 | DONE | An import resolves to what a file declares, not to what it is named | Stage 19 |
+| 22 | DONE | An analyzer declares no version: attribution is not identity | Stage 21 |
+| 23 | DONE | The Skill's export flag names its representation: `--export=nost` | Stage 20 |
+| 24 | DONE | Export is a verb, and `nost` is its default: `/nostdb export .` | Stage 23 |
+| 25 | DONE | The scan flag names its reader: `--scan=analyzer`, `--scan=ai` | Stage 24 |
+| 26 | DONE | `help` shows what an option accepts, not only one of its values | Stage 25 |
+| 27 | DONE | Two scan values: the analyzers first, and AI required | Stage 26 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -7943,3 +7950,759 @@ stays unopened, and would need schema ownership decided first.
 
 Commands: `./scripts/verify-repository.sh` (skills), and the preset suite run separately with an Engine on
 the path so `nostdb check` reads every preset.
+
+## Stage 21 scope
+
+Asked whether a Kotlin file's character is being decided by its name. For one edge it is, and the answer is
+narrower and worse than the question: `IMPORTS` is the only relation resolved from a file name, and for
+Kotlin a file name is not allowed to carry that weight.
+
+`imported_file` (`nostdb-core/src/build.rs`) turns `import com.demo.app.Payload` into the path
+`com/demo/app/Payload` and looks for a scanned file whose path corresponds to it. That is the whole
+resolution. It has to be, because both analyzers read the package declaration and **throw it away**:
+
+```rust
+Some("package") => {
+    // The package a file joins, not a declaration in it. Consumed so its dots do not
+    // read as anything else.
+    self.advance();
+    self.qualified_name();
+}
+```
+
+With no package held anywhere, the only thing an import can be matched against is a name in the tree.
+
+### Why this is sound for Java and unsound for Kotlin
+
+Java requires a public top-level class to sit in a file of the same name, so path correspondence agrees
+with the language. Kotlin requires nothing of the kind: `class Payload` may be declared in `Models.kt`,
+one file may declare many top-level classes, and `import com.demo.app.doThing` names a top-level function
+that belongs to no file of its own name at all.
+
+Two failures follow, and the second is the one that matters:
+
+- **a missing edge.** `Payload` declared in `Models.kt` matches no path, so the import is counted
+  unresolved and no edge is drawn. Silent, and common;
+- **a wrong edge.** A `Payload.kt` that exists in that package and declares something else is matched
+  anyway, and the graph asserts that a file imports a class the file does not declare.
+
+`imported_file`'s own documentation already rejects exactly that second failure as the reason it does not
+match on a last segment: "the graph would assert that a file imports a class it does not import." Path
+correspondence avoids the last-segment version of the error and reintroduces the same error for a language
+whose file names are free.
+
+### The direction, and why the earlier objection does not apply
+
+Record the package as a file-level fact and resolve a dotted import against a **declared** fully-qualified
+name — the target file's package joined to a top-level declaration in it — falling back to path
+correspondence only for a file that declared no package.
+
+`java.rs` states why the package was dropped: "a qualified name is an identity, and putting the package on
+one would retire and re-mint every record in every existing database." That objection stands and this does
+not meet it. The package goes on the **file**, not into any item's `qualified` name, so no record's identity
+changes. Nothing is retired and nothing is re-minted.
+
+### Scope
+
+- `FileAnalysis` carries the package a file declares, `None` where a language declares none;
+- `kotlin.rs` and `java.rs` record it instead of discarding it, and both analyzer versions bump, because an
+  analyzer that extracts a new fact is not the analyzer that did not;
+- the file node carries it as a property, and the `File` schema declares it optional;
+- a dotted import from a file that declared a package resolves by declared FQN only. No path fallback
+  there: path correspondence is the guess being removed, and a miss is the honest answer, because most
+  imports in any real file name a dependency this build never scanned;
+- `GRAPH_SCHEMA_VERSION` bumps, so an existing database redraws rather than keeping edges the old rule drew;
+- the stale row in `kotlin.rs`'s module documentation, which claims the package is put "on every qualified
+  name below" and never was, is corrected.
+
+Out of scope: Go's package, whose imports are paths and are already resolved as paths; star imports, which
+name a package rather than a file and stay unresolved; and the `analyzer_owner` oddity that names every
+builtin contribution `rust` regardless of the language read, which is a separate defect.
+
+### Stage 21 acceptance criteria
+
+1. a Kotlin class declared in a differently-named file resolves from an import of its package-qualified
+   name;
+2. a file whose name matches an import but which declares nothing of that name receives no `IMPORTS` edge;
+3. a Java import continues to resolve, by declaration rather than by file name;
+4. a dotted import naming something outside the build stays unresolved and draws no edge;
+5. `cargo fmt --check`, `cargo check`, `cargo clippy --all-targets --all-features -- -D warnings`,
+   `cargo test --all-targets --all-features`, and `./scripts/verify-repository.sh` pass in `nostdb-core`.
+
+### Stage 21 verification
+
+Commands, all in `nostdb-core`:
+
+```
+cargo fmt --check
+cargo check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets --all-features   # 971 passed, 0 failed
+./scripts/verify-repository.sh            # nostdb-core verification passed
+```
+
+And in the root: `./scripts/verify-workspace.sh` — workspace verification passed.
+
+Both defects were reproduced before being fixed rather than argued about. With the resolver switched back to
+path correspondence, the two new tests fail exactly as the scope predicted:
+
+- `a_kotlin_declaration_in_a_differently_named_file_resolves` — `left: []`, no edge drawn to the file that
+  declares `Payload`, because it is called `Models.kt`;
+- `a_file_named_for_an_import_it_does_not_declare_gets_no_edge` — an edge drawn to
+  `com/demo/app/data/Payload.kt`, which declares `Other`. The graph asserting an import of a class the
+  target does not declare, which is the failure `imported_file`'s own documentation rejects.
+
+A third fell out of the same rule and was not anticipated in the scope: a star import. `import com.demo.data.*`
+matched a file called `data.kt` under path correspondence, because dropping the last segment turned the
+package into a name. `a_star_import_names_a_package_and_draws_no_edge` pins it, and `imported_declaration`
+rejects a trailing `*` outright rather than walking it back.
+
+### What the existing tests already proved
+
+`an_import_naming_a_file_in_this_build_becomes_an_edge` and
+`an_import_naming_a_dependency_is_never_matched_by_name` write real Kotlin with real `package` lines, so they
+resolve through the new rule without being touched and still pass. The first now resolves by declaration; the
+second still refuses `java.util.List` in a project that declares exactly one `List`, which is what the rule
+was chosen for.
+
+`an_import_two_files_answer_to_resolves_to_neither` declares no package and therefore still exercises path
+correspondence — the fallback is live and covered, not dead code.
+
+### Decisions worth recording
+
+- **the package is on the file, not on a qualified name.** `java.rs` already stated the objection to the
+  alternative: a qualified name is an identity, and moving a package into one would retire and re-mint every
+  record in every existing database. That objection is untouched. `Payload` is still `Payload`, and the tests
+  in both analyzers assert it;
+- **no path fallback for a file that declared a package.** Falling back would have kept the wrong edge:
+  `Payload.kt` declaring `Other` is exactly the case where the FQN misses and the path hits. An unresolved
+  import is the honest answer, and the coverage counter already reports it;
+- **Go keeps `None` deliberately.** Go writes `package main`, but a Go import names a directory rather than
+  the package clause in it, so recording the clause would put a fact in the graph that nothing resolves
+  through and would route every Go import onto a rule that cannot answer it. Written as a comment at the
+  construction site so it does not read as an omission;
+- **both analyzer versions bumped to 2**, which is what makes a stored parse artifact from the earlier
+  analyzer miss rather than be read back as complete. `GRAPH_SCHEMA_VERSION` bumped to 9, which is the
+  migration for a database that holds edges the old rule drew.
+
+### Left undone, and why
+
+`analyzer_owner` names every builtin contribution `rust` regardless of the language read, so a Kotlin file's
+contributions are owned by `Analyzer { name: "rust", version: … }`. Untouched here: it is a real defect and a
+separate one, and changing an owner rewrites the ownership identity of every existing record, which is a
+migration that deserves its own Stage rather than a line in this one.
+
+Downstream is unaffected for now. `nostdb-cli` and `nostdb-server` depend on `nostdb-core` by pinned
+revision, so re-pinning them onto this change is a separate act and needs authorization, along with the
+commit and push it requires.
+
+### Stage 21 closed
+
+Every Acceptance Criterion passes. An import now resolves to what a file declares; a file named for a
+declaration it does not make receives no edge; a Java import still resolves, by declaration; a dotted import
+naming something outside the build stays unresolved and counted.
+
+## Stage 22 scope
+
+Asked to remove analyzer version management, after establishing that which analyzer read a file does not
+matter. The scope chosen is the `AnalyzerCapability.version` axis and the seven language analyzer `VERSION`
+constants behind it.
+
+### Two version axes, and only one is in scope
+
+Surveying before editing found a contract the question had not accounted for. There are two:
+
+- **`AnalyzerCapability.version`** — what an analyzer *declares* about itself, `docs/PRD.md` section 17.3.
+  Read in exactly one place, `analyzer_version` in `build.rs`, which feeds the parse cache key and evidence.
+  Removable within the root PRD and the Engine. **In scope**;
+- **`Owner::Analyzer { name, version }`** — section 11.3, and it is not only a PRD field.
+  `nostdb-spec/docs/CHANGE_SET.md` states "an analyzer's version is part of its identity", and
+  `nostdb-spec/docs/NOST_LANGUAGE.md` makes `analyzer "<name>" "<version>"` **required** grammar. Removing it
+  is a `.nost` language change with a `@nost` version consequence. **Out of scope**, and untouched.
+
+The distinction is what makes this Stage possible without touching the grammar.
+
+### What replaces each use
+
+- **the parse cache key.** `analyzer_digest` becomes the language alone. Shape versioning moves entirely to
+  `graph_schema_version`, which is already a separate component of the same key;
+- **evidence `producer_version`** for a language analyzer becomes `GRAPH_SCHEMA_VERSION`. Section 11.4 keeps
+  requiring the field — it was not in scope to remove — and this is the number that actually tracks what a
+  build asserts about a file;
+- **`analyzer_owner`** must keep producing `Analyzer { name: "rust", version: "1" }` **byte for byte**. It
+  read `rust::VERSION` for the version, so deleting that constant requires freezing the literal in place.
+  This is the hazard `build.rs` already documents: an owner nothing can withdraw leaves every record an
+  earlier build wrote unremovable, fresh units minted beside them, and both readings of every file held for
+  ever. The frozen constant is not an analyzer's version and says so;
+- **framework analyzers keep `react::VERSION` and `spring::VERSION`.** They are not among the seven and they
+  are a different producer: `react` is `Heuristic` and `spring` is `DeterministicSyntactic`, they write their
+  own records, and their evidence names them. Only the `version` field of their declared capability goes.
+
+### The cost, accepted when the option was chosen
+
+Per-language cache invalidation is lost. A change to one language's parser that leaves the record shape alone
+will be served from a stale artifact unless `GRAPH_SCHEMA_VERSION` moves, where before bumping that language's
+own constant was enough.
+
+Two hand-maintained numbers become one, which is the honest reading: it is coarser and there is less to
+forget. `GRAPH_SCHEMA_VERSION`'s documentation is rewritten to say what it now governs — any change to what an
+analyzer produces, not only a change to the shape of a record.
+
+### Stage 22 acceptance criteria
+
+1. `AnalyzerCapability` declares no version, in `docs/PRD.md` section 17.3 and in the Engine;
+2. the seven language analyzer `VERSION` constants are gone;
+3. `analyzer_owner` still returns `Analyzer { name: "rust", version: "1" }`, pinned by a test, so no existing
+   database holds records nothing can withdraw;
+4. an existing database still reuses an unchanged file and still redraws one whose `GRAPH_SCHEMA_VERSION`
+   moved;
+5. `cargo fmt --check`, `cargo check`, `cargo clippy --all-targets --all-features -- -D warnings`,
+   `cargo test --all-targets --all-features`, and `./scripts/verify-repository.sh` pass in `nostdb-core`, and
+   `./scripts/verify-workspace.sh` passes in the root.
+
+### Stage 22 verification
+
+Commands, in `nostdb-core`:
+
+```
+cargo fmt --check
+cargo check --all-targets --all-features
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets --all-features   # 973 passed, 0 failed
+./scripts/verify-repository.sh            # nostdb-core verification passed
+```
+
+And in the root: `./scripts/verify-workspace.sh` — workspace verification passed, including
+`version conformance: 13 contracts verified`, which is unaffected: it checks the independently evolving
+format and protocol versions, and an analyzer's declared version was never one of them.
+
+### What was removed, and what was found in the way
+
+Removed: `AnalyzerCapability.version` from `docs/PRD.md` section 17.3 and from the Engine, the seven
+language analyzer `VERSION` constants, and `analyzer_version` in `build.rs`, its only reader.
+
+Two things the survey caught that the plan had to route around:
+
+- **`FrameworkCapability` is a different struct** with its own `version` field, and `react`/`spring` build
+  it. The first pass removed those too and the compiler caught it. Restored: they are not among the seven,
+  they are a different producer with its own precision, and their evidence is what tells a reader a route
+  was found by `spring/1` rather than by a later reader with wider coverage;
+- **`analyzer_owner` read `rust::VERSION`** for its version half, so deleting that constant would have
+  changed the owner every existing database holds. `OWNER_NAME` and `OWNER_VERSION` freeze `"rust"` and
+  `"1"` in place, and `the_analyzer_owner_is_frozen_at_what_existing_databases_hold` pins both. Without that
+  test the value was right only by inspection, which is how it would have moved eventually.
+
+`Owner::Analyzer`'s version is untouched, and `an_analyzer_version_is_part_of_its_identity` in
+`contribution.rs` still asserts it. That is the axis `nostdb-spec` declares and `.nost` requires as grammar,
+and it was out of scope by design rather than by omission.
+
+### What replaced each use
+
+- `analyzer_digest` in the parse cache key is the language alone. Still per language, because two analyzers
+  must not share one identity, and `one_analyzer_never_reads_anothers_work_back` was renamed and rewritten to
+  guard what it now actually guards — a Kotlin parse handed to a reader asking for Rust — rather than a
+  newer version of one analyzer, which can no longer arise;
+- `producer_version` on a language analyzer's evidence is `GRAPH_SCHEMA_VERSION`. Section 11.4 still requires
+  the field: attribution stopped being versioned, provenance did not stop being required.
+
+### The cost, stated where it will be read
+
+`GRAPH_SCHEMA_VERSION` is now the only number of its kind, which widens what obliges a bump. A parser that
+starts recording a declaration it used to skip changes what a build asserts even when every label and property
+is identical, and a warm cache serves the old answer until that number moves. Its rustdoc says so in those
+words, because the next person to change a parser reads that and not this file.
+
+Stage 21 is the worked example: it bumped `kotlin` and `java` from 1 to 2 *and* the schema version. Under this
+Stage the schema version alone would have carried it, and forgetting it would have left the fixed bug live on
+any machine with a warm cache.
+
+### Stage 22 closed
+
+Every Acceptance Criterion passes. `AnalyzerCapability` declares no version in the PRD or the Engine, the
+seven constants are gone, the analyzer owner is frozen and pinned by a test, and reuse still turns on an
+unchanged digest while a moved `GRAPH_SCHEMA_VERSION` still forces a redraw.
+
+## Stage 23 scope
+
+Asked to respell one Skill surface flag: `/nostdb . --nost` becomes `/nostdb . --export nost`, with the
+question of whether the value takes an `=` left to judgment.
+
+### The judgment on `=`: it takes one
+
+`--export=nost`, because the surface already answers this question about itself. Its only other
+value-taking flags are `--ai=off` and `--ai=full`, both written with `=`, and the whole surface is thirteen
+lines long — a second spelling style in a table that short is a rule a reader has to learn twice.
+
+The space form is also genuinely ambiguous here in a way it is not in a shell. A model maps this surface to
+an action, and `/nostdb . --export nost` puts a bare word after a positional path in a surface where paths do
+appear: `/nostdb .nostdb/root.nost --sync` is a row of the same table. Whether `nost` is the flag's value or a
+second path is a question `=` does not raise.
+
+The CLI accepts both spellings for every value flag it has — `--project VALUE` and `--project=VALUE`,
+`--format` likewise — so the Skill documents `=` as canonical and states that the space form is understood
+too. Being stricter than the CLI the Skill extends would be a difference with nothing behind it.
+
+### What changes, and what deliberately does not
+
+The **surface** changes. The action name `build-nost` and the CLI command it emits,
+`nostdb export --nost <path>`, do not.
+
+That is the boundary this repository's own invariant draws: an action "need not be one CLI command, or be
+named after one — what is fixed is who does the work, not how the request is spelled". The CLI's `--nost` is
+required and is the only representation that build exports, so generalizing the emitted command would be
+inventing a format the Engine does not have. Renaming the action would churn the dispatcher and its fixtures
+to change an identifier no user types.
+
+One consequence worth stating: the Skill's `--export=nost` and the CLI's `export --nost` now read
+differently, where before they matched. The documentation says which is which at the one place it maps a
+surface to a command.
+
+### Scope
+
+- `SKILL.md`: the surface listing, the prose about what a build does not write, and the `Serves` column of
+  the action map;
+- `ACTIONS.md`: the table row and the prose about omitting the flag;
+- `tests/dispatch.test.sh`: the comment and label naming the surface flag. The command it asserts,
+  `ENGINE export --nost .`, is unchanged and must stay unchanged — that is the point of the boundary above.
+
+`help.sh` reads the surface out of `SKILL.md` rather than copying it, so it follows without being touched.
+
+### Stage 23 acceptance criteria
+
+1. no shipped document offers `/nostdb . --nost`;
+2. the emitted CLI command is still `nostdb export --nost <path>`;
+3. the cross-check between `SKILL.md`'s action map and `ACTIONS.md`'s table passes, which is what would catch
+   respelling one and not the other;
+4. `./scripts/verify-repository.sh` passes in `skills`, and `./scripts/verify-workspace.sh` in the root.
+
+### Stage 23 verification
+
+Commands: `./tests/dispatch.test.sh` and `./scripts/verify-repository.sh` in `skills` — both every check
+passed — and `./scripts/verify-workspace.sh` in the root, which passed.
+
+The check that mattered is the cross-check, and it reported the new spelling on both sides:
+
+```
+ok   build-nost serves /nostdb . --export=nost, declared optional
+ok   --export=nost emits the Engine's export --nost
+```
+
+The first is `SKILL.md`'s action map matched against `ACTIONS.md`'s table by literal string, so respelling one
+document and not the other fails rather than shipping a Skill that promises an invocation nothing declares.
+The second is the boundary: the surface moved and the emitted command did not.
+
+`help.sh` was not touched and renders the new line already, because it reads the surface out of `SKILL.md`
+rather than holding a copy. The column alignment of the block survived: `--export=nost` is seven characters
+longer than `--nost` and the descriptions still start where every other row's does.
+
+### Where `--nost` still appears, and why that is correct
+
+Two places, both prose that exists to distinguish the two flags: `SKILL.md` where it maps the surface to the
+command, and the test's comment on the same point. Nothing offers `/nostdb . --nost` as an invocation any
+more.
+
+### Stage 23 closed
+
+Every Acceptance Criterion passes. No shipped document offers the old spelling, the emitted command is still
+`nostdb export --nost <path>`, the map and the table agree, and both verifiers pass.
+
+## Stage 24 scope
+
+Stage 23 respelled a flag. This replaces it, because the flag was the wrong shape and Stage 23's own survey
+is what shows it. `nost` becomes the default representation of a verb, with `--format` reserved for when the
+Engine has a second one.
+
+### What the Engine actually does, which decides this
+
+`nostdb export --nost`'s own help says it "finds the nearest configured project" and writes the canonical
+document, and that it **warns when `database.nost` is false, because the file is written but nothing will
+keep it current**. It does not build, and it does not turn the setting on.
+
+Nor can the Skill turn it on: the CLI's command list has no `settings` or `config`, so there is no command to
+set `database.nost`, and a Skill writing settings itself would be a state change without the Engine.
+
+So the action's honest description is a one-shot write plus a staleness warning — and `/nostdb . --export=nost`
+described something else. A flag on a build reads as "this build now materializes", which is the one thing it
+does not mean.
+
+### Two further reasons the flag was wrong
+
+- **it forced a rebuild on somebody who only wanted the document.** `build-nost` emitted `build && export`, so
+  writing `.nost` from an already-built database re-analyzed the whole tree;
+- **the surface is already verb-first**, in seven of thirteen rows. The rows that put a path first are the
+  build and its true modifiers — `--ai=off` and `--ai=full` change *how* the build runs — plus `--sync`, which
+  is on a different path entirely. `--export=nost` was the only flag on `/nostdb .` that requested a **second
+  action** rather than modifying the one being asked for.
+
+### `nost` is the default, and `--format` is reserved
+
+`/nostdb export .` writes `.nost`. The CLI requires `--nost` precisely so that a later representation cannot
+silently change what a bare `export` means, and that guard is not weakened here: the Skill **always emits
+`--nost` explicitly**, so a bare export never reaches the Engine. The default lives in the Skill's surface,
+where a person reads it, and is spelled at the boundary, where it is executed.
+
+When the Engine gains a second representation the surface gains `--format=<name>`, spelled with `=` for the
+reason Stage 23 recorded. It is **not documented now**: a shipped document promising an action the dispatcher
+does not map describes a Skill that does not exist, which is what this repository's cross-check exists to
+prevent.
+
+### Scope
+
+- `dispatch.sh`: `build-nost` becomes `export`, emitting `nostdb export --nost <path>` and nothing else. Same
+  position in the case, because the AI-free set is compared in order against `SKILL.md`'s map;
+- `SKILL.md`: the surface row, the prose about what a build does not write, the action map row — whose AI usage
+  becomes `none`, since an export involves no model at any setting — and the build section;
+- `ACTIONS.md`: the table row and the prose about omitting the flag;
+- `tests/dispatch.test.sh`: the action lists, the export assertion, and the "substituted everywhere, not
+  prefixed once" check, which named `build-nost` because it named the command three times. An export names it
+  once, so that check moves to `summary`, which names it five times.
+
+The staleness warning is documented on the surface. Somebody will see it, and the Skill knowing it cannot turn
+the setting on is exactly what it should say in advance.
+
+### Stage 24 acceptance criteria
+
+1. `/nostdb export .` is the surface, and no document offers `/nostdb . --export=nost` or `/nostdb . --nost`;
+2. the emitted command is `nostdb export --nost <path>`, with no build and no `init` guard;
+3. the emitted command never spells a bare `export`, so a future representation cannot change its meaning;
+4. the cross-check between `SKILL.md`'s map and `ACTIONS.md`'s table passes, and the AI-free set still matches
+   the dispatcher in order;
+5. `./scripts/verify-repository.sh` passes in `skills`, and `./scripts/verify-workspace.sh` in the root.
+
+### Stage 24 verification
+
+Commands: `./tests/dispatch.test.sh` and `./scripts/verify-repository.sh` in `skills`, both every check passed,
+and `./scripts/verify-workspace.sh` in the root, which passed.
+
+```
+ok   export emits exactly the Engine's export, with the representation spelled
+ok   export neither builds nor initializes
+ok   export serves /nostdb export ., declared none
+ok   every occurrence is substituted, not just the first
+```
+
+The first pins the whole emitted command rather than matching a substring, which is what makes criterion 3
+testable: a bare `export` fails the equality, so a future representation cannot change what this action means
+by changing the Engine's default. The second is the new assertion — the old action emitted `build && export`
+behind a flag, and nothing had ruled that out for an action named `export`.
+
+### A check that would have silently stopped testing anything
+
+"Every occurrence is substituted, not just the first" was anchored on `build-nost` **because** it chained
+three commands. `export` emits one, so the check would have kept passing while proving nothing about
+substitution — one occurrence is indistinguishable from a prefix. Moved to `summary`, which names the resolved
+command five times.
+
+Worth recording as a kind: removing a chained action can quietly disarm a test that was never about that
+action, only about its shape.
+
+### A reading error the reorder fixed
+
+`--ai=off` is described as "the same, with enrichment refused", and "the same" refers to the row above it.
+Putting `/nostdb export .` second split the `/nostdb .` family and left that phrase pointing two rows up at
+something else. The export row moved below `--ai=full`, which keeps the build variants contiguous and puts
+the two `.nost` document rows — `export` and `--sync` — beside each other.
+
+The surface listing's order is independent of the action map's, which must stay aligned with the dispatcher's
+case order because the AI-free set is compared in sequence. Only the listing moved.
+
+### What Stage 23 got right and wrong
+
+Stage 23's judgment about `=` stands and is why `--format=<name>` is the reserved spelling. What it got wrong
+was accepting the premise that this is a flag on a build at all. Its own survey held the answer — the emitted
+command was `build && export`, two actions — and the shape was not questioned because the request was about
+spelling.
+
+`--format` is deliberately not documented. The Engine has one representation, and a shipped document promising
+an action the dispatcher does not map describes a Skill that does not exist.
+
+### Stage 24 closed
+
+Every Acceptance Criterion passes. `/nostdb export .` is the surface, the old spellings appear nowhere, the
+emitted command is `nostdb export --nost <path>` with no build and no guard and no bare `export`, and both
+verifiers pass.
+
+## Stage 25 scope
+
+Asked to respell the enrichment flag: `--ai=off` and `--ai=full` become `--scan=analyzer` and `--scan=ai`,
+with `--scan=default` as the third value.
+
+### It maps one to one onto what the Engine already has
+
+`nostdb_core::settings::AiMode` has exactly three values, and the three names land on them without
+remainder:
+
+| Surface | `AiMode` | AI usage | Means |
+| --- | --- | --- | --- |
+| `--scan=analyzer` | `Off` | `none` | deterministic analyzers only, enrichment refused |
+| `--scan=default` | `Auto` | `optional` | both, enrichment within the configured budget |
+| `--scan=ai` | `Full` | `required` | enrichment is not optional and fails without a model |
+
+The new names are better than the ones they replace, for a reason this workspace spent a while
+establishing: the flag now names **which reader does the work** rather than whether AI is switched on.
+`analyzer` and `ai` are the two readers, and the default is both.
+
+### `--scan=default` is documented as a value, not as a surface row
+
+Writing it changes nothing a bare `/nostdb .` does not already do, and the surface is a thirteen-line list
+where a row whose description is "the same as the row above, with a flag that changes nothing" is noise. So
+the two informative values get rows and `default` is named in the prose beside them, where somebody looking
+for the spelling finds it.
+
+### What this flag does and does not reach
+
+Worth recording, because the flag looks like it is passed through and is not: **the CLI exposes no AI
+option.** `ai_mode` is read from `.nostdb/settings.json` by the Engine, and the only place the CLI mentions
+it is `plan` reporting what it found there.
+
+So this flag governs what the *Skill* does around the build — which is what `ACTIONS.md` already says about
+its predecessor, that it "is a filter over this column, not a hope". `--scan=analyzer` takes the `build`
+action and refuses enrichment; `--scan=ai` takes `enrich`, which is `required` and has no AI-free mapping.
+Neither adds an argument to a command.
+
+### One naming collision, noted rather than resolved
+
+`scan` already means something in the Engine: `scan.rs` enumerates and filters files, which is the step
+*before* any analyzer runs. So `--scan=analyzer` reads as "scan with the analyzer" on the surface while
+"scan" upstream means "find the files". The two do not meet anywhere a user can see — no CLI flag, document,
+or diagnostic puts them side by side — so this is recorded as a thing that is true rather than a defect to
+fix.
+
+### Scope
+
+- `SKILL.md`: the two surface rows, the `Serves` column of the `enrich` row, and prose naming the default;
+- `ACTIONS.md`: the two table rows, the sentence about what the flag is a filter over, and the two places
+  in "What `optional` means" that name it;
+- `ENRICHMENT.md`: the row reading "`ai_mode` is `off`", which names the setting rather than the flag and is
+  checked for whether it still reads correctly beside the new spelling;
+- `tests/dispatch.test.sh`: the comment quoting the old spelling.
+
+The action names `build` and `enrich` do not change. They are identifiers no user types, and the surface
+spelling is decoupled from them by this repository's own invariant.
+
+### Stage 25 acceptance criteria
+
+1. no document offers `--ai=off` or `--ai=full`;
+2. `--scan=default` is documented as an accepted value and has no surface row of its own;
+3. the `enrich` action still serves the AI-required spelling, and the cross-check between `SKILL.md`'s map
+   and `ACTIONS.md`'s table passes;
+4. `./scripts/verify-repository.sh` passes in `skills`, and `./scripts/verify-workspace.sh` in the root.
+
+### Stage 25 verification
+
+Commands: `./tests/dispatch.test.sh` and `./scripts/verify-repository.sh` in `skills`, both every check passed,
+and `./scripts/verify-workspace.sh` in the root, which passed.
+
+```
+ok   enrich serves /nostdb . --scan=ai, declared required
+ok   enrich is not reachable AI-free
+```
+
+The first is the cross-check matching `SKILL.md`'s map against `ACTIONS.md`'s table by literal string, so
+respelling one document and not the other fails. The second is the boundary the spelling must not move: an
+AI-required action stays unreachable through the AI-free path.
+
+`grep -- "--ai="` over the shipped skill and the tests returns nothing.
+
+### The setting keeps its own name
+
+`ENRICHMENT.md` has a row reading "`ai_mode` is `off`", and that was left as the setting's name because it is
+the setting's name — `analysis.ai_mode` in `settings.json`, which the Engine reads. What changed is that the
+row now says which surface value asks for it, so a reader meeting `--scan=analyzer` above and `ai_mode` here
+is not left to infer that they are the same thing.
+
+### Where this flag reaches, which is less far than it looks
+
+The CLI exposes **no** AI option. `ai_mode` is read from `.nostdb/settings.json` by the Engine, and the only
+place the CLI names it is `plan`, reporting what it found. So `--scan` adds no argument to any emitted command:
+`--scan=analyzer` takes the `build` action and refuses enrichment, and `--scan=ai` takes `enrich`, which is
+`required` and has no AI-free mapping at all.
+
+That is what `ACTIONS.md` means by calling it "a filter over this column, not a hope", and it is why the
+respelling touched no dispatcher case.
+
+### Stage 25 closed
+
+Every Acceptance Criterion passes. No document offers the old spellings, `--scan=default` is documented as an
+accepted value with no surface row of its own, `enrich` still serves the AI-required spelling, and both
+verifiers pass.
+
+## Stage 26 scope
+
+Asked for the option values to be visible in `/nostdb help`. They partly were and the part that was not is a
+gap Stage 25 opened.
+
+`help.sh` extracts the whole `## Surface` section, so the `--scan` table Stage 25 added does reach the output.
+What does not reach the **compact block** — the fenced list a reader's eye goes to, and the only part of the
+output that reads like a help screen — is the value set. It shows `--scan=analyzer` and `--scan=ai` as two
+invocations and never says they are two of three, because Stage 25 deliberately gave `default` no row and put
+it in prose below.
+
+That decision was right about rows and wrong about visibility: a value nobody can see is not documented, it is
+merely written down.
+
+### The fix
+
+An `Options:` block inside the same fence, listing every option that takes a value together with the values it
+accepts. Two qualify: `--scan` and `--cypher`. `--sync` takes none, and `--format` does not exist — offering
+it would document an action the dispatcher does not map, which is the thing Stage 24 refused to do.
+
+The per-value rows stay. They carry what a value set cannot: that `analyzer` refuses enrichment rather than
+skipping it quietly, and that `ai` fails outright without a model.
+
+One sentence in the `--scan` table becomes false once `default` appears in the block — it says `default` "has
+no line of its own in the surface above" — and is corrected rather than left to rot.
+
+### Scope
+
+- `SKILL.md`: an `Options:` block in the surface fence, and the corrected sentence;
+- `tests/dispatch.test.sh`: the option values added to what the extracted surface must contain, so this cannot
+  silently regress the way it just did.
+
+### Stage 26 acceptance criteria
+
+1. `/nostdb help` shows `--scan`'s three accepted values and `--cypher`'s argument, inside the compact block;
+2. it offers no option the dispatcher does not serve — in particular no `--format`;
+3. a test fails if a value disappears from the extracted surface;
+4. `./scripts/verify-repository.sh` passes in `skills`, and `./scripts/verify-workspace.sh` in the root.
+
+### Stage 26 verification
+
+Commands: `./tests/dispatch.test.sh` and `./scripts/verify-repository.sh` in `skills`, both every check passed,
+and `./scripts/verify-workspace.sh` in the root, which passed.
+
+```
+ok   and says what every option accepts
+ok   and names no option the dispatcher does not serve
+```
+
+### The second check failed first, on something real
+
+Written to guard `--format` in the options block, it failed immediately — because the surface already named
+`--format`, in the sentence Stage 24 added to the export subsection explaining that it is the reserved
+spelling. Correct as rationale, and reaching the wrong reader: `help.sh` extracts the **entire** `## Surface`
+section, so a person asking what the Skill can do was told about a flag that does nothing.
+
+The sentence now says what a user needs — `nost` is the only representation, so there is no option to select
+one — and points at this file for the reservation. The check was widened from the options block to the whole
+surface, because where the name appears does not matter.
+
+This is the second time in three Stages that the Surface section's double duty has bitten: it is both the help
+screen and the place agent-facing prose about the surface lives. Recorded rather than fixed — separating them
+means deciding what `help` is for, which is a larger question than an options block.
+
+### What `Options` lists, and what it leaves out
+
+`--scan` and `--cypher` take values, so both are there with what they accept. `--sync` is listed as taking
+none, because a reader scanning a value set is exactly who would otherwise wonder. `--format` is absent for the
+reason above.
+
+The per-value invocation lines stay alongside it. They carry what a value set cannot: that `analyzer` refuses
+enrichment rather than skipping it quietly, and that `ai` fails outright with no model.
+
+### Stage 26 closed
+
+Every Acceptance Criterion passes. The compact block shows `--scan`'s three values and `--cypher`'s argument,
+names no option nothing serves, and a test now fails if a value disappears from it — which is what had already
+happened once, silently.
+
+## Stage 27 scope
+
+Asked for two values instead of three: `--scan=default` meaning the analyzer judges and AI takes what it could
+not, and `--scan=ai` meaning analysis by AI alone.
+
+The first is delivered and is a real sharpening. The second is delivered as **AI required** rather than AI
+alone, and this section records why the literal request is not implementable rather than quietly narrowing it.
+
+### `--scan=ai` cannot mean AI alone
+
+Two independent reasons, either sufficient:
+
+- **no mechanism.** `nostdb build` takes `--rebuild`, `--format`, and `--project`. Nothing suppresses the
+  deterministic analyzers, and the Skill invokes the CLI rather than analyzing anything itself. A surface
+  offering it would promise an action no command performs;
+- **the root contract forbids it.** "Structural analysis of supported source consumes zero external AI tokens"
+  and "Build a valid structural database before optional semantic enrichment." An AI-first read of supported
+  source spends tokens where the contract says zero and has no structural generation to commit before
+  enrichment. `AnalysisPacket` is derived from the structural pass, so removing it leaves the whole-repository
+  transcript the contract also prohibits.
+
+So `--scan=ai` means the two passes still run and the **AI half is required**: the action fails without a model
+instead of reporting a structural-only result. That is `AiMode::Full`, which is what it already mapped to.
+
+The names now describe requirement rather than reader — `ai` does not mean "only AI". The descriptions say so
+in the words a reader will act on, because a value whose name overstates it is worse than a longer name.
+
+### What `default` now says, which is what was asked for
+
+Previously "both, with enrichment inside the configured budget" — true and vague. Now: the deterministic
+analyzers read what they cover, and AI is asked about what they could not resolve, within the budget. That is
+what the pipeline does, so the surface finally describes it.
+
+### What removing `--scan=analyzer` costs
+
+It was `AiMode::Off` — no AI at all, enrichment refused rather than skipped quietly — and `ACTIONS.md` called
+it the way the AI-usage column "means something: it is a filter over this column, not a hope". Dropping it
+removes the only spelling a caller had for guaranteeing a build spends nothing.
+
+Not a capability loss, a surface loss: `analysis.ai_mode` in `.nostdb/settings.json` still takes `off`, and the
+Engine reads it. A project that must not spend tokens pins it there, which is more durable than remembering a
+flag. Recorded because the guarantee moved rather than vanished, and somebody looking for the flag needs to
+know where it went.
+
+### Scope
+
+- `SKILL.md`: the surface rows, the `Options` block, the `--scan` table from three values to two;
+- `ACTIONS.md`: the `--scan=analyzer` row removed, the `--scan=ai` row reworded, the "filter over this column"
+  sentence whose example that row was, and the two places in "What `optional` means";
+- `ENRICHMENT.md`: the row naming `--scan=analyzer` reverts to naming the setting alone, which is where the
+  guarantee now lives;
+- `tests/dispatch.test.sh`: the pinned value set.
+
+### Stage 27 acceptance criteria
+
+1. `--scan` accepts exactly `default` and `ai`, and no document offers `analyzer`;
+2. no document claims analysis by AI alone;
+3. `default` is described as the analyzers first and AI for what they could not resolve;
+4. the surface names where a no-tokens guarantee now lives;
+5. `./scripts/verify-repository.sh` passes in `skills`, and `./scripts/verify-workspace.sh` in the root.
+
+### Stage 27 verification
+
+Commands: `./tests/dispatch.test.sh` and `./scripts/verify-repository.sh` in `skills`, both every check passed,
+and `./scripts/verify-workspace.sh` in the root, which passed.
+
+`grep -- "scan=analyzer"` over the shipped skill and the tests returns nothing. The rendered `Options` block
+reads:
+
+```
+  --scan=default|ai                default: analyzers first, AI for what they could not
+                                   resolve. ai: the same, with the AI half required
+```
+
+Two lines rather than one, because the difference between the values is the whole point and a single line could
+only have named them.
+
+### The one part not delivered as asked
+
+`--scan=ai` does not mean analysis by AI alone, and the surface says so in those words: "**`ai` does not mean AI
+alone.**" Two reasons, recorded in the scope above — no CLI option suppresses the deterministic analyzers, and
+the root contract requires structural analysis of supported source to spend zero external tokens with a valid
+structural generation committed before any enrichment.
+
+Delivered instead: both passes always run, and `ai` makes the second one required, so a run without a model
+fails rather than reporting a structural-only result. That is `AiMode::Full`, unchanged from what the value
+already mapped to. What changed is that the documentation no longer lets the name imply more than the value
+does.
+
+### A stale comment the greps caught
+
+`tests/dispatch.test.sh` explained why the action map is shipped rather than living in the test, using
+`--scan=analyzer` and `build` as its example. The value is gone, so the example named a spelling nothing
+offers. Now `--scan=ai` and `enrich`, which is the same point with a pair that exists.
+
+### Stage 27 closed
+
+Every Acceptance Criterion passes. `--scan` accepts `default` and `ai` and nothing else, no document claims
+analysis by AI alone, `default` is described as the analyzers first with AI for what they could not resolve, and
+the surface names `analysis.ai_mode: off` as where a no-tokens guarantee lives now that no flag carries it.

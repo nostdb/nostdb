@@ -959,7 +959,6 @@ pub struct AnalyzerCapability {
     pub language: String,
     pub precision: PrecisionClass,
     pub facts: Vec<FactKind>,
-    pub version: String,
 }
 
 pub enum PrecisionClass {
@@ -970,6 +969,17 @@ pub enum PrecisionClass {
     Unsupported,
 }
 ```
+
+A capability declares coverage and precision, not attribution. It carries no
+version: which named analyzer among a build's own deterministic readers produced
+a record is not something a query can act on, and the information a reader does
+act on is `precision`, `EvidenceMethod`, and `Confidence`. Versioning what a
+build asserts about a file belongs to one number, the graph record shape version,
+rather than one per analyzer.
+
+This does not touch `Owner::Analyzer` in section 11.3. An owner's version is part
+of a contribution's identity, is declared in `nostdb-spec`, and is required
+grammar in `.nost`.
 
 An unsupported text language remains eligible for AI analysis and at minimum
 produces a source/module record with an explicit capability diagnostic. The UI
