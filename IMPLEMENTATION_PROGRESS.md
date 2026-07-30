@@ -87,6 +87,8 @@ requirements.
 | 25 | DONE | The scan flag names its reader: `--scan=analyzer`, `--scan=ai` | Stage 24 |
 | 26 | DONE | `help` shows what an option accepts, not only one of its values | Stage 25 |
 | 27 | DONE | Two scan values: the analyzers first, and AI required | Stage 26 |
+| 28 | DONE | An owner is one string, and the builtin one is `nostdb` | Stage 27 |
+| 29 | DONE | No legacy owner: two contracts bump instead | Stage 28 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -8706,3 +8708,265 @@ offers. Now `--scan=ai` and `enrich`, which is the same point with a pair that e
 Every Acceptance Criterion passes. `--scan` accepts `default` and `ai` and nothing else, no document claims
 analysis by AI alone, `default` is described as the analyzers first with AI for what they could not resolve, and
 the surface names `analysis.ai_mode: off` as where a no-tokens guarantee lives now that no flag carries it.
+
+## Stage 28 scope
+
+Asked to make the builtin owner `nostdb` and to carry an owner as one string rather than a structured
+identity, without a separate id and without `@by`'s sub-parts.
+
+Three of the four are delivered. `@by` itself stays, and the reason is in the grammar it belongs to.
+
+### `@by` cannot be replaced by a single record field
+
+`nostdb-spec/docs/NOST_LANGUAGE.md` section 5.6 states the consequence: without contribution blocks, "a
+database exported to `.nost` and read back would collapse every contribution into one user-owned
+contribution, which would break the root PRD section 11.3 guarantee that an analyzer refresh preserves user
+edits."
+
+Its own fixture shows why — one record carrying three contributions, each with its own source unit and its own
+evidence:
+
+```nost
+@by analyzer "rust-structural" "0.1.0" unit "u_0198…" { @evidence { … } }
+@by ai "sha256:1f0e…"                                { @evidence { … } }
+@by user {}
+```
+
+A single `by:` property per record has nowhere to put the second one. So `@by` remains a block, and the
+"one field" is the owner **inside** it.
+
+### The single-string owner
+
+| Was | Is |
+| --- | --- |
+| `@by analyzer "rust-structural" "0.1.0"` | `@by "rust-structural"` |
+| `@by ai "sha256:1f0e…"` | `@by "ai:sha256:1f0e…"` |
+| `@by user {}` | `@by "user"` |
+| `"owner": {"kind":"analyzer","name":"rust","version":"1"}` | `"owner": "nostdb"` |
+
+The kind is derived rather than declared: `user` is the user, an `ai:` prefix is AI analysis, and anything
+else is an analyzer. Both are reserved names, which the spec must say out loud since an analyzer could
+otherwise be called `user`.
+
+`RelationName` is already a validated name with no closed list, and Stage 22 removed the analyzer version from
+declared capability. An owner as one validated string is the same move on the last axis that still carried a
+structure.
+
+### The version leaves the owner, which is the point rather than a loss
+
+`CHANGE_SET.md` says an analyzer's version is part of its identity so that "upgrading an analyzer MUST NOT
+silently adopt the previous version's facts as the new version's own". That sentence is what produced the
+hazard `build.rs` documents: an owner nobody can withdraw, because the version moved and the old records
+answer to a name no change set names.
+
+Not adopting them was never the behavior anyone wanted. A refresh replacing its **own** prior contributions is
+the guarantee section 11.3 actually needs, and dropping the version from the owner is what delivers it. The
+"retiring a superseded version" question `build.rs` records as open closes here.
+
+### Migration happens on read, not at every comparison
+
+`.nostdb` stores an owner behind a tag byte. The decoder keeps reading the three legacy tags and maps them
+forward: `Analyzer { name: "rust", version: "1" }` becomes `nostdb`, any other legacy analyzer becomes its own
+name, `AiAnalysis { digest }` becomes `ai:<digest>`, and `User` becomes `user`.
+
+That is exact, because `analyzer_owner` was a single value and `rust`/`1` is the only analyzer owner an
+existing database can hold. And it means `existing_unit` finds those records immediately and
+`RemoveContribution` withdraws them normally — no alias at any comparison site, and no database left holding
+two readings of every file.
+
+### `@nost` stays at 2
+
+The reader accepts both spellings and the canonical formatter writes only the new one, so a document converts
+the next time it is reserialized. That is what a comment-preserving CST and a canonical formatter are for. The
+fixture goldens changing to the new form is the evidence the conversion happens.
+
+### Increments
+
+| Increment | Content | Status |
+| --- | --- | --- |
+| 1 | the Core model: `Owner` as one string, derived kind, legacy decode, `nostdb` | DONE |
+| 2 | `.nost` parser accepting both forms, formatter writing one | DONE |
+| 3 | the change set document, and `nostdb-spec`'s schema, grammar, and fixtures | DONE |
+| 4 | the root PRD section 11.3 | DONE |
+
+### Stage 28 acceptance criteria
+
+1. an owner is one validated string, and `user` and the `ai:` prefix are reserved;
+2. the builtin owner is `nostdb`;
+3. a database written before this reads back with its contributions withdrawable, proven by a test that
+   builds under the old owner and refreshes under the new one;
+4. `.nost` reads both spellings and writes the new one, with the goldens updated to match;
+5. `cargo fmt --check`, `cargo check`, `cargo clippy --all-targets --all-features -- -D warnings`, and
+   `cargo test --all-targets --all-features` pass in `nostdb-core`, both repository verifiers pass, and
+   `./scripts/verify-workspace.sh` passes in the root.
+
+### Stage 28 verification
+
+`nostdb-core`: `cargo fmt --check`, `cargo check --all-targets --all-features`,
+`cargo clippy --all-targets --all-features -- -D warnings`,
+`cargo test --all-targets --all-features` — **982 passed, 0 failed** — and
+`./scripts/verify-repository.sh` passed. `nostdb-spec`: `./scripts/verify-repository.sh` passed. Root:
+`./scripts/verify-workspace.sh` passed.
+
+The migration is pinned by five tests over the decoder, including the one that matters:
+
+```
+ok   the_legacy_builtin_owner_decodes_as_the_current_one
+ok   a_legacy_ai_owner_decodes_with_its_contract_digest_intact
+```
+
+and by a `.nost` round trip, `the_legacy_builtin_owner_converts_to_the_current_one`, asserting that
+`@by analyzer "rust" "1"` comes back out as `@by "nostdb"`.
+
+### Four things the conformance suite found that the plan had not
+
+Each one was a way to lose or reject something, and none was visible from the model change alone.
+
+- **`nostdb-spec` owns an executable grammar**, in two encodings. `grammar/nost.pest` had to learn
+  `named_owner`, and `grammar/nost.ebnf` had to declare the same rule name — a test enforces that the
+  reference encoding and the normative EBNF define the same set, and it caught the omission;
+- **the validator is a second reader of ownership**, separate from the converter. It required evidence of
+  every contribution not written with the `user` **keyword**, so a document spelling the user as a name was
+  invalid. Fixed by putting the derived kind on `OwnerDeclaration` itself, so the two cannot disagree about
+  what `@by "user"` means;
+- **the formatter was losing a field.** A legacy `analyzer "<name>" "<version>"` owner supplied a version its
+  evidence blocks could leave unwritten. Converting the owner takes that away, so a document that was valid
+  came back invalid. The version is now written into any block relying on it, sorted into canonical position
+  rather than appended;
+- **an AI owner must not supply a producer name.** The first pass inherited it from any non-user owner, which
+  would have reported an enricher as `ai:sha256:…` — a digest where a tool name belongs. Only an analyzer
+  supplies one, because only an analyzer's owner *is* one. A pre-existing test asserting that an `ai` owner
+  requires both fields is what caught it.
+
+### What `@by` kept, and why the request could not be met in full
+
+`@by` stays a block. One record carries several contributions, each with its own source unit and evidence, and
+`NOST_LANGUAGE.md` section 5.6 already stated the consequence of collapsing them: every contribution would
+read back as one user-owned contribution, breaking section 11.3's guarantee that a refresh preserves user
+edits. Its own fixture shows three on one record. A single `by:` property has nowhere to put the second.
+
+The "one field" is the owner inside it, which is delivered: `@by "nostdb"`, `@by "ai:<digest>"`, `@by "user"`,
+and `"owner": "nostdb"` in a change set.
+
+### Stage 28 closed
+
+Every Acceptance Criterion passes. An owner is one validated string with `user` and `ai:` reserved, the builtin
+owner is `nostdb`, a database written before this reads back with its contributions withdrawable, `.nost` reads
+both spellings and writes one, and all three verifiers pass.
+
+## Stage 29 scope
+
+Asked to remove the legacy owner support Stage 28 added rather than leave it in place.
+
+### Removing it forces two version bumps, and they are the point
+
+Both contracts already implement an explicit unsupported-version diagnostic, and that is what a removed
+reader has to reach instead of a confusing one:
+
+- **`.nostdb`**: without the legacy tags, an existing database's first owner byte is an unknown tag, and
+  `DecodeError::UnknownTag` is what a *corrupt* file reports. `FORMAT_VERSION` goes 1 → 2, so the header check
+  fires first and says "nostdb_format_version 1 is not supported by this build" — a database to rebuild rather
+  than a database to fear;
+- **`.nost`**: without the keyword forms, a document written by release 0.1.3 fails at `@by` with a parse
+  error. `LANGUAGE_VERSION` goes 2 → 3, so it fails at the header instead, with the unsupported-version
+  diagnostic the validator already raises.
+
+The second bump is also the honest one for a different reason. `@nost 2` shipped accepting
+`@by analyzer "<name>" "<version>"`. Removing that from version 2 would make version 2 mean two different
+things depending on which build read it, which is exactly what a version field exists to prevent — and
+`nostdb-spec`'s own rule is that every contract carries its own explicit version and no bump implies another.
+These two are bumped independently, each for its own reason.
+
+### What that costs, stated plainly
+
+An existing `.nostdb` must be rebuilt. Structural analysis of supported source spends no external tokens and
+is incremental, so a rebuild is cheap — but it is a rebuild, and any `.nost` written by hand under version 2
+needs its owner spellings and its version header updated by whoever wrote it.
+
+There is no migration path left after this Stage. That is what was asked for, and it is recorded here so the
+decision is not rediscovered later as an accident.
+
+### Scope
+
+- `nostdb-core`: the three legacy `.nostdb` owner tags and their decode arms, the change set's object form,
+  `OwnerDeclaration`'s three keyword variants — leaving one shape, so it stops being an enum — the version
+  inheritance those variants supplied, the formatter's carried-version injection, `LEGACY_OWNER_NAME` and
+  `LEGACY_OWNER_VERSION`, and the five decoder migration tests;
+- `FORMAT_VERSION` 1 → 2, `SUPPORTED_FORMAT_VERSIONS` to match, `LANGUAGE_VERSION` 2 → 3, and every
+  `@nost 2` header in the test suite;
+- `nostdb-spec`: `named_owner` becomes the only owner rule in both grammar encodings, the "MUST also read"
+  clauses go from `NOST_LANGUAGE.md` and `CHANGE_SET.md`, the legacy fixture is deleted, and all 53 fixture
+  headers move to `@nost 3`;
+- the root `docs/PRD.md`, wherever it names either version.
+
+### Stage 29 acceptance criteria
+
+1. no legacy owner spelling is accepted by the grammar, the parser, the decoder, or a change set;
+2. an existing `.nostdb` reports an unsupported format version rather than an unknown tag;
+3. a `.nost` document declaring version 2 reports an unsupported language version;
+4. `cargo fmt --check`, `cargo check`, `cargo clippy --all-targets --all-features -- -D warnings`, and
+   `cargo test --all-targets --all-features` pass in `nostdb-core`, both repository verifiers pass, and
+   `./scripts/verify-workspace.sh` passes in the root.
+
+### Stage 29 verification
+
+`nostdb-core`: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`,
+`cargo test --all-targets --all-features` — **976 passed, 0 failed** — and `./scripts/verify-repository.sh`
+passed. `nostdb-spec`: `./scripts/verify-repository.sh` passed.
+
+**`./scripts/verify-workspace.sh` does not pass yet, and cannot from this working tree.** Its one remaining
+failure is `version_conformance` in `nostdb-cli`:
+
+```
+assertion `left == right` failed: nost_language_versions
+  left: [2]
+  right: [3]
+```
+
+The CLI reports `SUPPORTED_LANGUAGE_VERSIONS` and `SUPPORTED_FORMAT_VERSIONS` from the Core revision the root
+**pins**, which is the one before this Stage. It will report `[3]` and `[2]` once re-pinned, and not before.
+So this criterion completes with the pin cascade rather than in the tree, the same way Stage 21's did: Core and
+`nostdb-spec` push, `nostdb-server` and `nostdb-cli` re-pin, then the root.
+
+`nostdb-cli` also asserts `"nost_language_versions": [2]` as a literal in its own suite, which has to move in
+the same commit that re-pins it. Recorded here so it is found then rather than discovered as a failure.
+
+### Two contracts moved, and the registry is what proved it
+
+`nostdb-spec` holds `versions.json` as the machine registry and `VERSIONS.md` as its human table, and a test
+asserts they agree. Both keys moved there — `nost_language_version` 2 → 3, `nostdb_format_version` 1 → 2 — with
+the bump recorded in the document that owns each key, per that repository's own procedure.
+
+Neither lists its predecessor as supported. That is what makes the removal real: there is no reader for the
+earlier spellings, so listing them would promise a parse no implementation can deliver.
+
+### What the fixture suites forced, beyond the model
+
+- **twenty `.nostdb` header fixtures encode a version.** Every one declared 1, so after the bump the version
+  check fired before the condition each fixture exists to test — `bad_header_crc` reported an unsupported
+  version rather than corruption. Each was moved to 2 and its `header_crc32c` recomputed over bytes 0..44, and
+  `unsupported_version.hex` moved to 3 so it still names a version above the maximum;
+- **`bad_header_crc` keeps its deliberately wrong checksum**, which is the one fixture the recompute had to
+  skip;
+- **52 `.nost` fixtures carry a version header**, all swept to `@nost 3`, and two still spelled a keyword owner
+  — `ambiguous_confidence` and `invalid_evidence` — which the accepted and semantic suites caught.
+
+### Stage 29 closed
+
+The pin cascade ran and `./scripts/verify-workspace.sh` passes, including
+`version conformance: 13 contracts verified` — which is the check that could not pass from the working tree,
+because the CLI reports the version constants of the Core the root pins.
+
+Pushed in dependency order: `nostdb-spec` 0762999, `nostdb-core` fb18a8d, `nostdb-server` 7f82e25 re-pinned
+onto Core, `nostdb-cli` f980ad3 re-pinned onto both, then the root.
+
+Two things the cascade found, neither predicted:
+
+- **`nostdb-cli` holds its own `.nost` and change set fixtures.** Twelve command tests wrote `@nost 2`, and one
+  hand-written change set wrote `"owner": {"kind": "user"}`. Both are contracts that moved, so a crate that
+  only re-pinned would have failed on documents it wrote itself;
+- **`cargo tree -i nostdb-core` is the check that matters when re-pinning.** Moving only the Core pin left
+  `nostdb-cli` building two Core revisions — its own and the one reached through Server — which is the failure
+  the root's pin check exists to prevent. Server had to push first so the CLI could name both.
+
+Every Acceptance Criterion passes.

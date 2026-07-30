@@ -522,12 +522,19 @@ pub struct Contribution {
     pub evidence: Vec<Evidence>,
 }
 
-pub enum Owner {
-    Analyzer { name: String, version: String },
-    AiAnalysis { contract_digest: String },
-    User,
-}
+pub struct Owner(String);
 ```
+
+An owner is one string, and its kind follows from the name: `user` is the user,
+an `ai:` prefix is AI analysis followed by the digest of the contract that ran,
+and every other name is an analyzer naming itself. `user` and the `ai:` prefix
+are reserved.
+
+An owner carries no version. Carrying one was justified by saying an upgraded
+analyzer must not adopt the previous version's facts, and that is what left
+records answering to a name no change set names, so nothing could withdraw them
+and a graph held two readings of every file. What this section needs is that a
+refresh replaces its **own** prior contributions, which one name delivers.
 
 An analyzer refresh may replace only contributions owned by that analyzer and
 source unit. It MUST preserve user contributions and contributions from other
