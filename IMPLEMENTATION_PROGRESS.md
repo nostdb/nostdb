@@ -9266,6 +9266,32 @@ converting. Requiring the flag is what makes the destruction something somebody 
 they were meant to see into a file they did not know they lost, and a test pins that it is absent unless
 asked for.
 
+### The sync concept did not leave the code, and a rename was checked rather than assumed
+
+Asked to rename what the removal made stale, on the reading that synchronization was gone internally. It is
+not, and a blanket rename would have destroyed a live capability the root contract mandates:
+
+- `nostdb sync [PATH]` is still a command — "Bring .nostdb and .nost into agreement, or say why not";
+- `nostdb-core/src/sync.rs` is 329 lines of it;
+- `CLAUDE.md` requires it twice: synchronization compares generations and content digests rather than
+  timestamps, and when both representations changed from one baseline it reports `SYNC_CONFLICT` and
+  modifies neither.
+
+What Stage 31 removed is the **Skill's route** to that command. So every remaining mention was checked
+against what it refers to:
+
+| Mention | Verdict |
+| --- | --- |
+| `SKILL.md` naming `nostdb sync` for reconciling | deliberate — it points at the CLI command the surface no longer offers |
+| `SKILL.md` "not a synchronizer" | a prohibition on reimplementing the Engine, still true |
+| the test asserting `sync` is not an action | the point of the removal |
+| `sync` among the writing commands `summary` must not emit | the CLI still has it, and it still writes |
+| `sync` among the positional-taking CLI commands | describes the CLI's parser, unchanged |
+
+One was genuinely stale: the frontmatter **description** opened with "Build, query, and synchronize". That
+sentence is what an agent selects the Skill by, so it was promising a capability the surface had just lost —
+worse than omitting one, because it decides whether the Skill is reached for at all. It now says "convert".
+
 ### Stage 31 closed
 
 Every Acceptance Criterion passes. **Not yet released:** the Skill emits `--replace`, and no published
