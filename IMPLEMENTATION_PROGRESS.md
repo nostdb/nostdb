@@ -94,6 +94,7 @@ requirements.
 | 32 | DONE | A release builds the children the root pins | Stage 31 |
 | 33 | DONE | A Spring Boot vocabulary, and the preset check that could not run | Stage 32 |
 | 34 | DONE | Evidence a proposal declares, MIT Skills, Kotlin, Python, and the reconciliation workflow | Stage 33 |
+| 35 | DONE | The Skill's scripts in Python, and two JSON readers that were regexes | Stage 34 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -9860,3 +9861,125 @@ output, not about this release.
 
 npm `latest` is 0.1.6, the GitHub release carries four targets and their checksums, and the tap points at them
 with the digests the release recorded.
+
+## Stage 35 scope
+
+The `nostdb` Skill's six scripts in Python. Stage 34 converted the Spring Boot Skill's one and recorded these
+as a Stage of their own, because each is pinned by a suite asserting its exact output and exit codes.
+
+### That reasoning was half right, and the half that was wrong matters
+
+Stage 34's note said shell is right when the work *is* running commands, which is what this Skill does. Two of
+these six parse JSON with a regex:
+
+```sh
+# resolve-engine.sh, reading a contract's supported versions
+sed -n "s/.*\"$reported\":\[\([^]]*\)\].*/\1/p"
+
+# budget-check.sh, reading a plan's estimate
+echo "$plan" | tr -d ' \n' | sed -n "s/.*\"$1\":\([0-9]*\).*/\1/p"
+```
+
+Neither is parsing. `budget-check` strips every space and newline and matches a pattern anywhere in the
+result; the nested form assumes the inner key follows the outer within one `{}`. `resolve-engine` reads a JSON
+array with a character class that stops at the first `]`.
+
+Both work against what the Engine writes today, and that is the point rather than a reprieve: what they depend
+on is its member order. `max_input_tokens` happens to be written first inside `budget`, so the pattern finds
+it — and JSON member order carries no meaning, so moving one line in the emitter would change the answer with
+no contract change and nothing to notice. The gate would read no limit and return `ask` on a plan that should
+skip.
+
+So this is not churn. It removes a class of defect from the two scripts that decide whether an AI call is
+affordable and whether an Engine is compatible — the two places a wrong answer is least visible.
+
+### The suites are the specification
+
+Every script is pinned by a suite asserting exact output and exit codes. A faithful rewrite is one those
+suites accept **unchanged apart from the path they invoke**, which is what makes this verifiable rather than
+hopeful. Nothing about a suite's assertions is relaxed to fit a rewrite; where one fails, the rewrite is
+wrong.
+
+### Also in scope, because last Stage recorded it
+
+`nostdb-spec` and `nostdb-core` run `cargo check` without `--locked`, so their verifiers refresh a stale lock
+as a side effect and report a pass. Release 0.1.6 showed the provider's `--locked` check earning itself back;
+these two would not have noticed the same thing.
+
+### Stage 35 acceptance criteria
+
+1. the `nostdb` Skill ships Python and no shell script, and every document referencing one names the Python;
+2. every existing suite passes with no assertion changed, only the path it invokes;
+3. neither JSON reader is a regex: a reordered or nested reply is read correctly, pinned by a test that fails
+   against the shell behavior;
+4. `nostdb-spec` and `nostdb-core` check with `--locked`;
+5. every repository verifier passes, and `./scripts/verify-workspace.sh` in the root.
+
+### Stage 35 verification
+
+`skills`: `./scripts/verify-repository.sh` passed, with every suite green —
+`resolution` 40 checks, `dispatch` 63, `presets` 10, `budget` its own, `natural language` 25, and the
+Spring Boot preset suite. `nostdb-spec` and `nostdb-core`: their verifiers passed. Root:
+`./scripts/verify-workspace.sh` passed.
+
+**No assertion was relaxed.** Every suite runs its original checks against the Python, and the only thing that
+changed in five of the six is the path invoked. Two mechanisms had to move, and both were mechanisms rather
+than assertions:
+
+- the pty driver ran the script as `["/bin/sh", script, …]`, which made it a second declaration of what the
+  script was written in — wrong the moment the script changed language. It now execs the script and lets the
+  shebang decide;
+- the check that discovers which actions the dispatcher maps grepped `case` labels, which Python does not have.
+  It reads the dispatcher's own `ACTIONS` now, and still decides what *maps* by running each — which is the
+  part worth keeping, because `help` is an action that maps nothing.
+
+`ACTIONS` is load-bearing rather than a list for a reader: an action absent from it is refused before any
+branch runs, so a branch not named there is unreachable. A decorative list would have drifted.
+
+### Two bugs the rewrite found, and one it did not
+
+**Reading `/dev/tty` hung the suite.** The first draft of the key reader opened `/dev/tty`, which is the
+obvious source for a keypress and is wrong here: a caller driving the menu through a pseudo-terminal writes to
+the child's *standard input*, so the reader waited for ever on a key that had already arrived. The shell read
+stdin, and so does this. It is also `os.read` rather than a buffered reader, which waits for more than the one
+byte asked for.
+
+**Detecting Windows needs both sources.** The suite reaches that branch with a fake `uname` on the path — the
+only way to reach it from a machine that is not Windows. `platform.system()` uses the syscall and ignores a
+fake binary, so three checks failed. Both are consulted now, `uname -s` first, and that is more correct than
+either alone: under a POSIX layer the layer's own answer is what counts, because that is the environment the
+npm and brew commands would run in, and where there is no `uname` at all — Windows-native Python — only
+`platform.system()` can say so.
+
+**`budget-check`'s two failing cases are shapes the contract permits, not shapes the CLI emits.** Against
+today's output the shell reader worked, because `max_input_tokens` happens to be written first inside
+`budget`. What it depended on was that order, and JSON member order carries no meaning — so moving one line in
+the emitter would have made the gate read no limit and answer `ask` on a plan that should skip. Four cases pin
+the reader to the document; two of them fail against the shell version.
+
+### What this makes the Skill depend on
+
+`python3`. The suite already needed it for the pty test and said so — "skipped where python3 is absent rather
+than made a dependency of the suite" — and that is no longer a soft dependency. It is a real cost, recorded
+rather than argued away: `/bin/sh` is present on more machines than `python3`.
+
+What it buys is the two JSON readers, and the arithmetic. Shell has no floats, so a fractional token limit was
+read as its integer prefix; now it is refused as the defect it is.
+
+### Stage 35 closed
+
+Every Acceptance Criterion passes.
+
+### A record written into the wrong repository
+
+This section was appended to a file in the `skills` child and pushed there, because a command ran with the
+working directory inside it rather than at the root. `skills/AGENTS.md` says sequencing is tracked in the root
+superproject, and nothing in that repository enforced it — so a copy landed, was committed, and passed its
+verifier.
+
+Removed, and refused by that verifier now. The check is one file test, and it exists because the boundary was
+written down in prose that nothing read.
+
+### Stage 35 closed
+
+Every Acceptance Criterion passes.
