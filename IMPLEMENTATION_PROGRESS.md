@@ -9792,3 +9792,71 @@ as agreement, which is the failure to avoid.
 ### Stage 34 closed
 
 Every Acceptance Criterion passes.
+
+## Release 0.1.6: evidence that means what it says, and Kotlin's constraints
+
+Stage 34 fixed two things a published build did not have. The release number moved in ten places; no contract
+version moved with it, because nothing here changes a format or a protocol — `graph_schema_version` went to 10
+for its own reason and is a record shape version, so a 0.1.5 database opens unchanged and a Kotlin project
+needs one rebuild to gain what it was missing.
+
+### The first release under Stage 32's rule, and the rule held
+
+`release.yml` now checks the children out at the revision the **root** pins rather than at their default
+branch, which makes the order matter: the root was re-pinned before the release was cut rather than after. The
+log shows it resolving what the root records:
+
+```
+nostdb-distribution=3b8bfa3a38bd5739e274a7199adbdfa69dca8056
+nostdb-provider-github=48a0adb8af29b55db9585e55779f7df3cc4510fb
+```
+
+0.1.5 was re-pinned afterwards and would have built a provider one revision behind — quietly, because the
+build would have succeeded.
+
+### The lock check earned itself back immediately
+
+Bumping the version left every `Cargo.lock` recording 0.1.5, and `nostdb-provider-github`'s verifier — which
+Stage 33 gave `cargo check --locked` for exactly this — refused before anything was pushed. That is the failure
+that cost 0.1.5 four build jobs, caught locally this time in the repository that caused it.
+
+Worth noting the asymmetry it exposes: `nostdb-spec` and `nostdb-core` run `cargo check` **without**
+`--locked`, so their verifiers refresh a stale lock as a side effect and report a pass. Neither is built with
+`--locked` by the release, so nothing breaks — but the two repositories differ in whether their gate would
+notice, and only one of them would.
+
+### Verified against the published artifacts
+
+The archive was downloaded, its digest checked against the attached `checksums.json`, unpacked — both programs
+present, `nostdb 0.1.6` and the provider — and run:
+
+```
+$ nostdb build --project .          # data class NewUser(@NotBlank val email: String)
+note: no framework analyzer here interprets NotBlank, Size; enrichment is what reads them
+```
+
+0.1.5 reported nothing for that file. And a proposal's evidence, read back out of the database:
+
+```nost
+@evidence {
+  confidence: inferred(0.8199999928474426),
+  range: "4:3:40-4:32:69",
+  method: ai_inferred,
+  ...
+}
+```
+
+0.1.5 stored `confidence: extracted` and no range. Then again in an empty directory through
+`npx --yes nostdb@latest`, which is the path a user reaches.
+
+### One cosmetic thing found and left
+
+A score renders as `0.8199999928474426` because `Score` holds an `f32` and the `.nost` writer prints the
+widened `f64`. It re-parses to the same `f32`, so a round trip is stable and formatting stays idempotent — it
+is verbose rather than wrong. Left alone: narrowing the rendering is a decision about the language's float
+output, not about this release.
+
+### Release 0.1.6 closed
+
+npm `latest` is 0.1.6, the GitHub release carries four targets and their checksums, and the tap points at them
+with the digests the release recorded.
