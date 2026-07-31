@@ -89,6 +89,7 @@ requirements.
 | 27 | DONE | Two scan values: the analyzers first, and AI required | Stage 26 |
 | 28 | DONE | An owner is one string, and the builtin one is `nostdb` | Stage 27 |
 | 29 | DONE | No legacy owner: two contracts bump instead | Stage 28 |
+| 30 | DONE | `sync` is a verb, and `convert` is the bidirectional one | Stage 29 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -9062,3 +9063,105 @@ The reported symptom was `@by analyzer "rust" "1"`. It is gone on the path the r
 
 GitHub, Homebrew, and npm all carry it. Every one of the ten repositories is clean and synchronized, and
 `./scripts/verify-workspace.sh` passes.
+
+## Stage 30 scope
+
+Asked for two things after reading `/nostdb help`: give `sync` the verb-first shape the rest of the surface
+has, in the form `sync <source> <target>`, and make `.nost` and `.nostdb` synchronizable in both directions.
+
+They are two different commands, and the reason is worth stating before the change rather than after.
+
+### `sync` cannot take a source and a target
+
+`nostdb sync [PATH]` reconciles a **configured project's** two representations against a recorded baseline,
+comparing generations and content digests. Its whole job is answering "which side changed since they last
+agreed", and when both did it modifies neither and reports `SYNC_CONFLICT` — the CLI's own help says there is
+no option to prefer one, "because preferring either would discard the other's changes and nothing here can
+know which of the two a person meant to keep".
+
+Two arbitrary files have no recorded baseline, so that question has no answer for them. A `sync a b` would
+therefore have to be either a blind copy, which discards whatever it overwrites, or a conversion — and a
+conversion is a command that already exists.
+
+### What delivers the second half: `convert`
+
+`nostdb convert INPUT OUTPUT` converts in whichever direction the extensions name — `.nost -> .nostdb`
+validates then commits, `.nostdb -> .nost` reads the graph then writes canonical `.nost`. It refuses two
+identical extensions, because that is a copy rather than a conversion.
+
+**The Skill does not expose it at all.** So the bidirectional operation the request asks for is not a change
+to `sync`; it is a row the surface never had, and its shape is exactly the `<source> <target>` that was asked
+for.
+
+### What the reshape also fixes
+
+The surface reads `/nostdb .nostdb/root.nost --sync`, which names a **file**. The dispatcher emits
+`nostdb sync <path>`, which takes a **project**. So the documented invocation has been showing an argument of
+the wrong kind — passing that path through would hand `sync` a file where it expects the project containing
+it. Verb-first removes the flag and the wrong argument together.
+
+`--sync` leaves the `Options` block with it, because it stops being a flag.
+
+### Scope
+
+- `dispatch.sh`: a `convert` action emitting `nostdb convert INPUT OUTPUT`, refusing when it is not given
+  two operands, in the same position discipline the AI-free set comparison requires;
+- `SKILL.md`: the `sync` row becomes verb-first and project-scoped, a `convert` row is added, `--sync` leaves
+  `Options`, and both action-map rows follow;
+- `ACTIONS.md`: the two table rows;
+- `tests/dispatch.test.sh`: the action lists, the pinned option values, and assertions that `convert` emits
+  both operands and that `sync` still names a project.
+
+### Stage 30 acceptance criteria
+
+1. `/nostdb sync .` is the surface, and no document offers the flag form or a file path to `sync`;
+2. `/nostdb convert <input> <output>` is offered and emits `nostdb convert INPUT OUTPUT` unchanged, in either
+   direction;
+3. `convert` with fewer than two operands is refused rather than emitting a partial command;
+4. the cross-check between `SKILL.md`'s map and `ACTIONS.md`'s table passes, and the AI-free set still matches
+   the dispatcher in order;
+5. `./scripts/verify-repository.sh` passes in `skills`, and `./scripts/verify-workspace.sh` in the root.
+
+### Stage 30 verification
+
+`./tests/dispatch.test.sh` and `./scripts/verify-repository.sh` in `skills`, both every check passed, and
+`./scripts/verify-workspace.sh` in the root, which passed.
+
+```
+ok   convert emits the input and the output, in order
+ok   and the other direction is the same command
+ok   convert with one operand is refused
+ok   sync names a project
+ok   and not a representation
+```
+
+And against the published Engine rather than the mapping alone:
+
+```
+$ nostdb convert .nostdb/root.nostdb /tmp/out.nost   -> @nost 3
+$ nostdb convert /tmp/out.nost /tmp/out.nostdb       -> wrote 6 nodes, 6 edges, 0 links, 16 schemas
+$ nostdb convert /tmp/out.nost /tmp/copy.nost
+cannot convert .nost to .nost: that is a copy rather than a conversion
+```
+
+### The action probe assumed one argument, and `convert` takes two
+
+The check that decides which actions the dispatcher maps does it by **running** each case label, because an
+action is no longer required to emit a command. It passed a single path, so `convert` refused, and the
+AI-free set came back missing an action the dispatcher does map.
+
+The probe now passes two. Every other action reads only what it needs, so the spare argument changes nothing
+for them — and the alternative, special-casing `convert`, would have put knowledge of one action's arity in a
+check whose whole point is not to have any.
+
+### A wrong argument the reshape removed
+
+The old surface read `/nostdb .nostdb/root.nost --sync`, naming a **file**, while the dispatcher emits
+`nostdb sync <path>`, which takes a **project**. Following the documented invocation would have handed `sync`
+a representation where it expects the directory containing both. A test now fails if a representation reaches
+it.
+
+### Stage 30 closed
+
+Every Acceptance Criterion passes. `sync` reconciles a project, `convert` converts two files in whichever
+direction their extensions name, and the surface says which is which.
