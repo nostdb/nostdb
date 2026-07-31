@@ -9308,3 +9308,57 @@ The test pins each value separately rather than the joined spelling, which no lo
 
 Every Acceptance Criterion passes. **Not yet released:** the Skill emits `--replace`, and no published
 Engine accepts it until a release carries this CLI.
+
+## Release 0.1.5: convert refuses an existing output
+
+Stage 31 gave `convert` a `--replace` option and the Skill emits it. No published Engine accepted it, so
+this release carries one.
+
+The release number moved in ten places. No contract version moved: nothing here changes a format, a
+language, or a protocol, and the CLI command surface is not among the versioned contracts — which is why
+0.1.4 databases and documents are read by this release unchanged.
+
+### The first run failed on all four targets, and the local gate could not have caught it
+
+`nostdb-provider-github`'s `Cargo.lock` still recorded 0.1.4 while its manifest said 0.1.5, and the release
+builds that crate with `--locked`.
+
+Its verifier checked repository shape, ownership boundaries, the licence, and the stdout rule — and ran
+**no cargo command at all**, while the root contract requires every Rust repository to pass fmt, check,
+clippy, and test. So a version bump passed every gate the repository had and failed in the most expensive
+place available.
+
+The verifier now runs the four commands, and passes `--locked` to `cargo check` specifically because that
+is how the release builds this crate. A lock disagreeing with its manifest now fails locally rather than
+four jobs into a release.
+
+Worth recording as a kind: a repository whose gate is weaker than its release will discover the difference
+during a release.
+
+### One thing found and not fixed
+
+`release.yml` checks out `nostdb-provider-github` with no `ref`, so it takes the default branch — while its
+own comment says it is "checked out at the revision the superproject pins rather than at its default
+branch", and explains that a release taking whatever the branch happened to be "would ship a provider
+nothing had verified alongside this engine". The comment describes an intent the step does not implement.
+
+Not changed here, because fixing it means deciding how the workflow learns the root's pin, and a release in
+progress is the wrong moment to answer that. Recorded so it is not rediscovered as a surprise.
+
+### Verified against the published artifacts
+
+```
+$ nostdb --version                                   nostdb 0.1.5
+$ nostdb convert root.nostdb out.nost                exit 0
+$ nostdb convert root.nostdb out.nost
+out.nost already exists: pass --replace to overwrite it     exit 4
+$ nostdb convert root.nostdb out.nost --replace      exit 0
+```
+
+first against the release archive, then again in an empty directory through
+`npx --yes nostdb@latest`, which is the path a user reaches.
+
+### Release 0.1.5 closed
+
+npm `latest` is 0.1.5, the GitHub release carries four targets and their checksums, and the tap points at
+them with the digests the release recorded.
