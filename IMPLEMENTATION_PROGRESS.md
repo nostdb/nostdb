@@ -9292,6 +9292,18 @@ One was genuinely stale: the frontmatter **description** opened with "Build, que
 sentence is what an agent selects the Skill by, so it was promising a capability the surface had just lost —
 worse than omitting one, because it decides whether the Skill is reached for at all. It now says "convert".
 
+### The options block had one row that did not fit
+
+`--scan=default|ai` was the only row whose description wrapped, and the wrap forced the prose to name both
+values again inside it — "default: … ai: …" — in a column narrow enough to break. The two values a reader
+came to find were the least legible thing in the block.
+
+One row per value: `--scan=default` and `--scan=ai`, each with its own description, each a complete
+fragment somebody can copy. A pipe-separated set is neither. `--replace` also dropped "takes no value",
+which every other row now shows by carrying its value inline.
+
+The test pins each value separately rather than the joined spelling, which no longer appears anywhere.
+
 ### Stage 31 closed
 
 Every Acceptance Criterion passes. **Not yet released:** the Skill emits `--replace`, and no published
