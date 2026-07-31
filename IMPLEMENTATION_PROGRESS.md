@@ -90,6 +90,7 @@ requirements.
 | 28 | DONE | An owner is one string, and the builtin one is `nostdb` | Stage 27 |
 | 29 | DONE | No legacy owner: two contracts bump instead | Stage 28 |
 | 30 | DONE | `sync` is a verb, and `convert` is the bidirectional one | Stage 29 |
+| 31 | DONE | `convert --replace`, and the Skill keeps only `convert` | Stage 30 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -9165,3 +9166,107 @@ it.
 
 Every Acceptance Criterion passes. `sync` reconciles a project, `convert` converts two files in whichever
 direction their extensions name, and the surface says which is which.
+
+## Stage 31 scope
+
+Asked to drop `sync` from the Skill so only `convert` remains, and to give `convert` a `--replace` option:
+overwrite an existing output when it is passed, fail when it is not.
+
+### The second half is an Engine change, not a surface one
+
+`nostdb convert` has no such option, and it **silently overwrites** an existing output today — verified
+against the published 0.1.4 binary, which returned exit 0 and replaced the file without a word. A Skill
+emitting `--replace` would name a flag the Engine rejects, which is the thing this repository's cross-check
+exists to prevent.
+
+So `nostdb-cli` changes first, and the Skill follows it.
+
+### The default becomes refusal, which is a breaking change worth stating
+
+After this, a bare `convert` onto an existing path fails where it used to succeed. That is the request, and
+it is also the safer default: the current behavior destroys a file without naming it, and the one command
+whose whole job is writing a second representation is the one most likely to be pointed at something that
+already exists.
+
+`ExitClass::Conflict` rather than `Usage`, because the invocation is well formed and the filesystem is what
+refuses. It is the class `sync` uses when both representations changed, and for the same reason: two things
+want that path and nothing here can know which one was meant.
+
+### What removing `sync` from the Skill costs
+
+`convert x.nost .nostdb/root.nostdb --replace` overwrites a database with no baseline check — precisely the
+case `sync` refuses with `SYNC_CONFLICT`. The capability is not gone, because the CLI keeps `sync`; what goes
+is the Skill's route to it, so an agent reconciling a project has only the destructive command left.
+
+Requiring `--replace` is the mitigation that makes it survivable: the destruction is now something somebody
+typed rather than something that happened.
+
+### Scope
+
+- `nostdb-cli`: `--replace` on `convert`, refusing an existing output without it, in whichever position the
+  flag appears among the operands; the help text; and tests covering both directions, both defaults, and the
+  flag's effect;
+- `skills`: the `sync` action and its surface row removed, `--replace` added to the `convert` row and to
+  `Options`, and the prose contrasting the two commands replaced by what `convert` alone now guarantees;
+- a release, because the Skill's emitted command does not work against a published Engine until one carries
+  the flag.
+
+### Stage 31 acceptance criteria
+
+1. `nostdb convert` refuses an existing output and exits `Conflict`, naming the path and the flag;
+2. `--replace` overwrites, in both directions, and is accepted before or after the operands;
+3. a `convert` onto a path that does not exist is unaffected;
+4. no Skill document offers `sync`, and the `convert` row and `Options` name `--replace`;
+5. `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and
+   `cargo test --all-targets --all-features` pass in `nostdb-cli`, both repository verifiers pass, and
+   `./scripts/verify-workspace.sh` passes in the root.
+
+### Stage 31 verification
+
+`nostdb-cli`: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`,
+`cargo test --all-targets --all-features` — **97 command tests passed, 0 failed** — and
+`./scripts/verify-repository.sh` passed. `skills`: `./scripts/verify-repository.sh` passed. Root:
+`./scripts/verify-workspace.sh` passed.
+
+```
+$ nostdb convert out.nostdb exists.nost
+exists.nost already exists: pass --replace to overwrite it        (exit 4)
+$ nostdb convert out.nostdb exists.nost --replace                 (exit 0)
+$ nostdb convert --replace out.nostdb exists.nost                 (exit 0)
+```
+
+### The existing suite showed how often this overwrite was relied on
+
+Twelve tests failed the moment the default became refusal, and none of them was testing `convert`. Every
+one seeded a freshly initialized project by converting a document onto the `.nostdb/root.nostdb` that `init`
+had just written — "put something in the database by converting into it", as one comment says. Each now
+passes `--replace`, which is what they were always doing.
+
+One failure was more than bookkeeping. `a_refused_conversion_leaves_the_target_exactly_as_it_was` proves a
+document that fails validation does not touch the target, and it reached the existence check first, so it
+stopped testing validation at all. It now passes `--replace` and proves the stronger statement: **even when
+overwriting is permitted**, an invalid document leaves the target as it was.
+
+### Order of refusals
+
+Extensions are checked before existence. `convert a.nost b.nost` reports the copy it is rather than
+complaining that `b.nost` exists — one is a mistake in the command and the other a fact about the
+filesystem, and naming the command's mistake sends somebody to fix the right thing. Pinned by a test.
+
+### What the Skill lost, and what it says instead
+
+`sync` is gone from the surface and remains in the CLI. So the Skill's only route from a `.nost` onto a
+project's database is `convert --replace`, which discards whatever the database held with no comparison of
+what changed — the case `sync` refuses with `SYNC_CONFLICT`.
+
+The surface says this where it will be read, and names `nostdb sync` for reconciling rather than
+converting. Requiring the flag is what makes the destruction something somebody typed.
+
+`--replace` is forwarded and never added. A Skill supplying it on a caller's behalf would convert a refusal
+they were meant to see into a file they did not know they lost, and a test pins that it is absent unless
+asked for.
+
+### Stage 31 closed
+
+Every Acceptance Criterion passes. **Not yet released:** the Skill emits `--replace`, and no published
+Engine accepts it until a release carries this CLI.
