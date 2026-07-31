@@ -2164,7 +2164,8 @@ The clean-slate repositories use:
 - `nostdb-core`, `nostdb-cli`, and `nostdb-server`: SSPL-1.0 and described as
   **source-available**, not open source;
 - `nostdb-spec` executable grammar and fixtures: Apache-2.0;
-- `skills` and a future thin `nostdb-mcp`: Apache-2.0;
+- `skills`: MIT, because a Skill is read, forked, and replaced rather than linked;
+- a future thin `nostdb-mcp`: Apache-2.0;
 - provider/plugin extension schemas and future drivers: Apache-2.0;
 - root documentation: CC BY-NC-SA 3.0 unless otherwise noted.
 

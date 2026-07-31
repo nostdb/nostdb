@@ -302,7 +302,9 @@ Every feature includes coverage appropriate to its boundary:
 - `nostdb-core`, `nostdb-cli`, `nostdb-server`: SSPL-1.0. Describe them as
   **source-available**, not open source.
 - `nostdb-spec` executable grammar and fixtures: Apache-2.0.
-- `skills` and a future thin `nostdb-mcp`: Apache-2.0.
+- `skills`: MIT. A Skill is a document somebody reads, forks, and replaces with their own, and
+  the shortest permissive licence is the one that says so with the least to read.
+- a future thin `nostdb-mcp`: Apache-2.0.
 - provider/plugin extension schemas and future drivers: Apache-2.0.
 - root documentation: CC BY-NC-SA 3.0 unless otherwise noted.
 

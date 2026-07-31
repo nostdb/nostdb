@@ -151,6 +151,7 @@ rather than assumed.
   for a distribution or a mirror needlessly fraught — while the whole purpose of both
   is that people install through them.
 - `nostdb-spec` executable grammar and fixtures: Apache-2.0.
-- `skills` and a future thin `nostdb-mcp`: Apache-2.0.
+- `skills`: MIT.
+- a future thin `nostdb-mcp`: Apache-2.0.
 - provider/plugin extension schemas and future drivers: Apache-2.0.
 - root documentation: CC BY-NC-SA 3.0 unless otherwise noted.

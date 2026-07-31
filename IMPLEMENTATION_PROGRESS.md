@@ -93,6 +93,7 @@ requirements.
 | 31 | DONE | `convert --replace`, and the Skill keeps only `convert` | Stage 30 |
 | 32 | DONE | A release builds the children the root pins | Stage 31 |
 | 33 | DONE | A Spring Boot vocabulary, and the preset check that could not run | Stage 32 |
+| 34 | DONE | Evidence a proposal declares, MIT Skills, Kotlin, Python, and the reconciliation workflow | Stage 33 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -9641,3 +9642,153 @@ leaving them out until the routes exist guarantees that whatever arrives then is
 Every Acceptance Criterion passes. The Skill is installable, its 26 schemas collide with no builtin label, no
 builtin relation, no `jpa` label, and no `Schema`, the Engine validates both presets from the root, and a
 proposal in the vocabulary applies and answers questions about a real project.
+
+## Stage 34 scope
+
+Five things, asked as one: expose the identifier an edge needs, put the Skills under MIT, make the Spring
+Boot vocabulary serve Kotlin as well as Java, replace its shell script with Python, and write down the
+workflow where two producers analyze one project and their answers are reconciled into one graph.
+
+### The first was already there, and Stage 33 said otherwise
+
+There is nothing to expose. `RETURN e` in JSON format already yields the identifier a change set endpoint
+needs:
+
+```
+$ nostdb query "MATCH (e:Endpoint) RETURN e AS record" --project . --format json
+[{"node": "n_019fb6a0-43b7-7942-8c96-a7c7fcf8341c"}, ...]
+```
+
+`nostdb export --nost` writes it too, as the reserved `id` property. Both were verified by drawing
+`Endpoint -ACCEPTS-> Request` with an identifier read that way, applying it, and querying the result across
+the boundary.
+
+Stage 34 therefore **corrects Stage 33**, which recorded the opposite. That record was written after looking
+for `nostdb.id()` and for `e.id` — neither exists — and concluding there was no route without trying
+`RETURN e`. The consequence was worse than a wrong note: `SKILL.md` told a model not to do something that
+works, and a test pinned the wrong statement.
+
+### What is actually broken, and it is in the way of the last item
+
+`change_document.rs` reads an evidence entry's `method` and then hardcodes
+`confidence: Confidence::Extracted`, discarding whatever the document declared. It drops `range` the same
+way. So **every proposal, whatever it claims, is stored at the confidence reserved for a fact read directly
+out of source.**
+
+That is the axis on which two producers' answers are compared. With every proposal recorded as `extracted`,
+an AI's inference and an analyzer's extraction are indistinguishable in the graph — which the root contract
+forbids in as many words: results must not imply that heuristic or AI results carry the same confidence as
+deterministic ones.
+
+Nothing caught it because `nostdb-spec/docs/CHANGE_SET.md` never says what an evidence entry contains. The
+shape lives only in a fixture, and that fixture happens to declare `"confidence": "extracted"` — the one
+value the hardcoding produces.
+
+The `.nost` route has always honored both: `ambiguous_confidence.nost` is a published fixture, and
+`convert` reads `inferred(0.82)` correctly. So the two routes into one graph disagree about what evidence
+means.
+
+### Scope
+
+- `nostdb-core`: read `confidence` and `range` from a change set's evidence rather than substituting one;
+- `nostdb-spec`: document what an evidence entry contains, which is why this was invisible, and add fixtures
+  for a rejected score and an accepted inferred one;
+- `skills`: correct Stage 33's five markers and the `SKILL.md` section that acted on them, and the test;
+- `skills`: MIT, both definitions and the repository, with the root contract and the PRD moved with it;
+- `skills`: the Spring Boot vocabulary stated as serving Kotlin and Java, proven on a Kotlin tree;
+- `skills`: the lookup rewritten in Python;
+- `skills`: a coverage document in the `nostdb` Skill for the workflow — build, find what was not read, use
+  an installed Skill for what one covers, have the model read the rest, and reconcile the two onto one record.
+
+### Stage 34 acceptance criteria
+
+1. an evidence entry's `confidence` and `range` survive a change set, and a malformed score is refused rather
+   than silently downgraded;
+2. no Skill document tells a model that an edge into a build-written record cannot be proposed, and the
+   recipe for the identifier is stated instead;
+3. the Skills and the repository are MIT, and no document still claims Apache-2.0 for them;
+4. the vocabulary is proven on a Kotlin Spring Boot tree as well as a Java one;
+5. the Spring Boot Skill ships Python and no shell script;
+6. the workflow is written down, including how two producers' answers reach one record and how a
+   disagreement stays visible;
+7. every repository verifier passes, and `./scripts/verify-workspace.sh` in the root.
+
+### Stage 34 verification
+
+`nostdb-core`: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`,
+`cargo test --all-targets --all-features` — **985 passed, 0 failed** — and `./scripts/verify-repository.sh`
+passed. `nostdb-spec` and `skills`: their verifiers passed. Root: `./scripts/verify-workspace.sh` passed,
+including `preset conformance: 2 Skill preset(s) verified by the Engine`.
+
+Change-set conformance went from 3 accepted and 9 rejected fixtures to **4 and 11**, which is the three new
+ones running.
+
+### The evidence fix, proven by reverting it
+
+Six unit tests cover the decoder. Reverting it to the substituted values fails five of them and passes one —
+`an_absent_confidence_is_extracted_and_an_absent_range_is_none`, which is the single case the old behavior got
+right, and the reason no fixture had caught it.
+
+A conformance fixture could not have caught this on its own: it proves a document is accepted or refused, not
+that a value survived. The bug was "accepted and discarded". So both layers exist — fixtures for the contract,
+unit tests for the preservation.
+
+### A second defect, found while proving Kotlin
+
+`kotlin.rs` read the annotations on a primary-constructor property and dropped them:
+`annotations: Vec::new()`. That is where an idiomatic Kotlin request type states its constraints —
+`data class NewUser(@NotBlank val email: String)` — so **a build reported none of them**, while the same
+`@NotBlank` on a Java field was reported.
+
+The Skill could not have compensated. Step 1 of its workflow reads the capability diagnostic to decide what
+needs enrichment, and for an idiomatic Kotlin project that diagnostic said there was nothing to read. Fixed,
+with `GRAPH_SCHEMA_VERSION` at 10 so a database built before it is redrawn, and pinned twice: the analyzer
+keeps them, and `project.rs` asserts the report now names `NotBlank` and `Size`.
+
+The clearing rule needed its own test. The first implementation carried an annotation on a plain parameter —
+`class C(@Inject dependency: Service, val kept: String)` — forward onto the next property, attributing a
+constraint to the wrong field. A parameter boundary clears what was read.
+
+### Python, and two gaps in the verifier it exposed
+
+The Spring Boot Skill's lookup is Python and ships no shell. Shell is right when the work *is* running
+commands, which is what the `nostdb` Skill does; this one reads a table and matches a name, and the index was
+pipe-separated precisely because a shell reader could not be trusted with JSON.
+
+The verifier knew only about shell. It extracted `scripts/*.sh` references and checked the executable bit on
+`*.sh`, so **a Python script a definition named would have been unverified in both** — the reference could
+have pointed at nothing, and the bit could have been missing. Both now cover `.py`, and both were confirmed by
+breaking them.
+
+The `nostdb` Skill's six shell scripts are **not** converted. Each is pinned by a suite asserting its exact
+output and exit codes, and rewriting them is a Stage of its own rather than a side effect of this one.
+
+### What the Skills are licensed as
+
+MIT, in both definitions, the repository's `LICENSE`, its verifier, its README, and the root contract, the
+PRD, and `docs/REPOSITORIES.md`. A Skill is a document somebody reads, forks, and replaces; `nostdb-mcp`
+stays Apache-2.0, which is why that line was split rather than edited.
+
+### The workflow, written where the coordinator is
+
+`skills/nostdb/COVERAGE.md`. The `nostdb` Skill is what runs the Engine and reads its report, so the
+orchestration is its own; the Spring Boot Skill knows nothing about Flyway and should not.
+
+Two parts are worth naming because they are not obvious from the model:
+
+- **each producer proposes separately.** A change set carries one owner, and an owner is what
+  `RemoveContribution` withdraws — so redoing the Flyway reading replaces the Flyway facts and leaves the
+  Spring Boot ones alone. One combined set makes that impossible;
+- **the second producer upserts the first's record.** Ask for the identifier, propose with it, and the Engine
+  merges: one record, both contributions, both evidences, each naming its own producer. Verified end to end
+  earlier in this Stage. That is the "one schema" two readings reach — not a merge that picks a winner, but a
+  record that keeps who said what.
+
+Where they disagree on a value, the later proposal wins the property and both evidences remain, so the
+disagreement is findable. The document says to surface it and let the user decide rather than average, prefer
+the newer, or prefer one's own — and it says that a graph where one producer quietly overwrote another reads
+as agreement, which is the failure to avoid.
+
+### Stage 34 closed
+
+Every Acceptance Criterion passes.
