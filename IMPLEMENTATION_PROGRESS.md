@@ -92,6 +92,7 @@ requirements.
 | 30 | DONE | `sync` is a verb, and `convert` is the bidirectional one | Stage 29 |
 | 31 | DONE | `convert --replace`, and the Skill keeps only `convert` | Stage 30 |
 | 32 | DONE | A release builds the children the root pins | Stage 31 |
+| 33 | DONE | A Spring Boot vocabulary, and the preset check that could not run | Stage 32 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -9500,3 +9501,143 @@ The second re-runs the first, which is exactly when `--replace` is needed and th
 in. The first draft showed the reverse for the second line — a `.nost` onto the project's database — which
 is the case the paragraph below the fence warns about, with no baseline check of what the database held. A
 help screen demonstrating the dangerous direction while the prose warns against it teaches the wrong half.
+
+## Stage 33 scope
+
+Asked for a `nostdb-analyzer-springboot` Skill carrying a preset schema covering endpoints, requests,
+responses, rules, databases, tables, collections, schedulers and jobs — in detail, with the relations among
+them — plus configuration files (gradle, toml, yaml, properties) and dependencies.
+
+This is the first step of the direction recorded above: moving framework recognition out of Core. It adds a
+vocabulary and adds nothing to Core, so it is reversible and proves the vocabulary before anything is
+removed.
+
+### A defect found first, and it is why this Stage starts here
+
+`skills/nostdb/presets/jpa.nost` declared `@nost 2`. Stage 29 raised the language to 3 and swept
+`nostdb-core` and `nostdb-spec`; it missed this repository. So the only preset this workspace ships has been
+**refused by the Engine** since that Stage:
+
+```
+23:7: error: NOST_VERSION_UNSUPPORTED: language version 2 is not supported; this build supports [3]
+```
+
+`tests/presets.test.sh` is written to catch exactly this — it hands every preset to `nostdb check` — and it
+reported `skip no nostdb on the path`, because neither the skills verifier nor the root workspace verifier
+puts an Engine there. The check that existed for this could not run in either place it runs.
+
+Fixed, and the gap closed: the root builds an Engine and owns the skills child, so it is the only place that
+has both.
+
+### What the preset covers, and what it deliberately does not
+
+It owns the **web contract**, the **physical data store**, **framework-invoked work**, and
+**configuration and build**. It does not own persistence mappings: `Entity`, `Column`, and `Repository`
+belong to the `jpa` preset, and two presets declaring one label would leave whichever was applied last
+standing.
+
+Three boundaries decide every name in it:
+
+- **no label a build already writes.** `Endpoint`, `File`, `Module`, `Field`, and `Method` are among them, so
+  the route record is not redeclared — the preset *references* `Endpoint` in an endpoint constraint and hangs
+  its own records off it. Settings hang off the builtin `File` rather than a `ConfigFile` of their own, which
+  would put two records on one path;
+- **no label the `jpa` preset declares**, hence `TableColumn` rather than `Column`;
+- **no builtin relation name.** `HANDLED_BY` runs `Endpoint -> Method` in every build, so a preset declaring a
+  schema for it would raise a violation on every build's own edges. `Job` reaches its declaration through
+  `RUNS` instead.
+
+### Two credential decisions, made structurally rather than by rule
+
+- **`Datasource` has no `url` field.** A JDBC URL routinely carries a user and a password, and a field for
+  one invites recording it. `kind`, `driver`, `host`, `port`, `database`, and `schema_name` are the parts that
+  matter, and none of them can hold a credential;
+- **`Setting.secret` means the value is absent.** A settings file holds tokens beside ports. The flag says a
+  value was withheld rather than that the setting is unremarkable, so a reader can tell "not written down"
+  from "deliberately not recorded".
+
+### Scope
+
+- `skills/skills/nostdb-analyzer-springboot/`: `SKILL.md`, `presets/springboot.nost`, `presets/index`, and
+  its own `scripts/presets.sh`, because the verifier requires every reference to resolve inside the folder an
+  installer copies;
+- `skills/tests/springboot-preset.test.sh`, wired into the repository verifier;
+- `skills/nostdb/presets/jpa.nost`: `@nost 3`;
+- `scripts/verify-workspace.sh`: put the workspace's own Engine on the path for the skills verifier, so the
+  preset check stops skipping.
+
+### Stage 33 acceptance criteria
+
+1. `nostdb check` reports both presets valid, and the suite fails rather than skips when no Engine is
+   reachable from the workspace;
+2. the new preset declares no builtin label, no `jpa` label, no builtin relation name, and no label called
+   `Schema`;
+3. the Skill is installable: its name matches its folder, and every reference resolves inside it;
+4. a proposal in the preset's vocabulary applies through `nostdb apply` and is queryable, proven against a
+   real Spring Boot tree rather than asserted;
+5. `./scripts/verify-repository.sh` passes in `skills`, and `./scripts/verify-workspace.sh` in the root.
+
+### Stage 33 verification
+
+`./scripts/verify-repository.sh` in `skills` — both Skills reported installable, `springboot preset: every
+check passed` — and `./scripts/verify-workspace.sh` in the root, which now reports
+`preset conformance: 2 Skill preset(s) verified by the Engine`.
+
+The preset-conformance check was verified by reintroducing the defect it exists for. Putting `@nost 2` back
+into `jpa.nost` makes the workspace verifier print `the Engine refused skills/skills/nostdb/presets/jpa.nost`
+and exit 1. Zero presets found is a failure there rather than a pass, because a glob that stopped matching is
+how this check would quietly become the skip it replaced.
+
+### The vocabulary, proven against a real tree rather than asserted
+
+A Spring Boot project was built — two routes, a scheduled job, `application.yaml`, `application.properties`,
+`gradle/libs.versions.toml`, `build.gradle.kts`, and a migration — and the build reported what it could not
+read:
+
+```
+endpoints  2 from spring
+note: no framework analyzer here interprets Component, NotBlank, ResponseStatus, Scheduled
+```
+
+Three of those four are in the preset's coverage column and `Component` deliberately is not. A 21-operation
+proposal then applied — 12 records and 9 edges — and answers:
+
+```
+job    kind       mode   table        key                         value  secret
+sweep  scheduled  write  users        server.port                 8080
+                                      spring.datasource.password         true
+
+constrained      kind        rule
+["Request"]      validation  email not blank
+["TableColumn"]  database    email unique
+```
+
+The last one is the design decision paying off: `CONSTRAINED_BY` is declared without endpoints, and one query
+finds rules over two different shapes. A relation per shape would have needed two.
+
+### Two Engine gaps this found, both verified and neither fixed here
+
+**An edge cannot reach a record a build wrote.** A change set names an endpoint by opaque identifier —
+`{"local": "n_…"}` — and nothing exposes the identifier of a record the Engine minted one for: `nostdb.id` is
+not a function, and the reserved `id` property reads empty on those records. So five relations in the preset
+are declared and unproposable: `ACCEPTS`, `RETURNS`, `RUNS`, `DECLARES_SETTING`, `ROOTED_AT`.
+
+This is the primitive the whole "analyzers as Skills" direction needs, not a nicety for one preset. Any
+out-of-Core analyzer has to attach facts to records something else wrote. It also means Stage 20's preset
+records have only ever been able to stand alone — nobody noticed, because nobody drew an edge.
+
+**A change set cannot carry a list property.** `read_property_value` in `change_document.rs` takes a boolean,
+a string, and a number and refuses an array, while `PropertyValue::List` exists, `.nost` reads and writes
+lists, and a schema may declare `string[]` — which is why `nostdb check` accepts this preset and `apply`
+refuses one field of it. `Bytes` and `DateTime` are missing from the same reader, and those genuinely need a
+tagging decision JSON does not make for them; a list does not.
+
+Both are left in place, and both are stated in the preset **and** in `SKILL.md`, because the model reads the
+second. Declaring the names anyway is deliberate: a preset exists to fix a name before one is invented, and
+leaving them out until the routes exist guarantees that whatever arrives then is called something else.
+
+### Stage 33 closed
+
+Every Acceptance Criterion passes. The Skill is installable, its 26 schemas collide with no builtin label, no
+builtin relation, no `jpa` label, and no `Schema`, the Engine validates both presets from the root, and a
+proposal in the vocabulary applies and answers questions about a real project.

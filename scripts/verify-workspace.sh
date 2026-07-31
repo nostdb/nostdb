@@ -203,6 +203,50 @@ if [ -f .gitmodules ]; then
   done < <(git config --file .gitmodules --get-regexp '^submodule\..*\.url$')
 fi
 
+# Cross-repository preset check.
+#
+# A Skill's preset is a `.nost` document, and the Engine is what validates one. The skills child says so and
+# hands every preset to `nostdb check` — and reports `skip no nostdb on the path`, because nothing in that
+# repository or in this one put an Engine there. So the check existed and ran nowhere.
+#
+# It was not hypothetical. Stage 29 raised `nost_language_version` to 3 and swept this root's own children;
+# `jpa.nost` kept `@nost 2` and was refused by every Engine for two releases, while the suite written to catch
+# exactly that skipped in both places it runs.
+#
+# This is the root's to do rather than the child's. A preset lives in one child and the Engine that reads it
+# is built from another, and the root is the only place that has both — the same reason the conformance suites
+# above feed one child's fixtures to another child's build.
+if [ -d skills ] && [ -f nostdb-cli/Cargo.toml ]; then
+  preset_failures=0
+  preset_count=0
+  for preset in skills/skills/*/presets/*.nost; do
+    [ -e "$preset" ] || continue
+    preset_count=$((preset_count + 1))
+    if ! preset_report=$(cargo run --quiet --manifest-path nostdb-cli/Cargo.toml -- check "$preset" 2>&1); then
+      echo "the Engine refused $preset:" >&2
+      printf '%s\n' "$preset_report" >&2
+      preset_failures=$((preset_failures + 1))
+      continue
+    fi
+    # `check` exits 0 on a document that is merely well formed, so the report is what says it validated.
+    case "$preset_report" in
+      *valid*) ;;
+      *)
+        echo "the Engine did not report $preset valid:" >&2
+        printf '%s\n' "$preset_report" >&2
+        preset_failures=$((preset_failures + 1)) ;;
+    esac
+  done
+  # Nothing to check is a failure here rather than a pass. Both Skills ship a preset, so zero means a glob
+  # that stopped matching — which is how this check would quietly become the skip it replaced.
+  if [ "$preset_count" -eq 0 ]; then
+    echo "no Skill preset was found to validate; the paths this check globs have moved" >&2
+    exit 1
+  fi
+  [ "$preset_failures" -eq 0 ] || exit 1
+  echo "preset conformance: $preset_count Skill preset(s) verified by the Engine"
+fi
+
 # Cross-repository distribution check.
 #
 # This root, docs/REPOSITORIES.md, and docs/PRD.md section 8.1 all describe the Skills as
