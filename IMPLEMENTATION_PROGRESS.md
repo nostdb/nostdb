@@ -91,6 +91,7 @@ requirements.
 | 29 | DONE | No legacy owner: two contracts bump instead | Stage 28 |
 | 30 | DONE | `sync` is a verb, and `convert` is the bidirectional one | Stage 29 |
 | 31 | DONE | `convert --replace`, and the Skill keeps only `convert` | Stage 30 |
+| 32 | DONE | A release builds the children the root pins | Stage 31 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -9362,3 +9363,90 @@ first against the release archive, then again in an empty directory through
 
 npm `latest` is 0.1.5, the GitHub release carries four targets and their checksums, and the tap points at
 them with the digests the release recorded.
+
+## Stage 32 scope
+
+Release 0.1.5 recorded that `release.yml` checks out `nostdb-provider-github` with no `ref`, taking its
+default branch, while the step's own comment says it is "checked out at the revision the superproject pins
+rather than at its default branch" and explains that a release taking whatever the branch happened to be
+"would ship a provider nothing had verified alongside this engine".
+
+The comment describes an intent the step does not implement. This implements it.
+
+### The assembler has the same defect, and it matters as much
+
+`nostdb-distribution` is checked out the same way. That repository owns what a release archive *is* — its
+shape, its digests, and their reproducibility — so a release assembled by whatever is on its branch is a
+release assembled by something the root never verified beside this engine. Both checkouts read the pin.
+
+### Where the pin comes from
+
+The root superproject records a gitlink per child, and `git rev-parse HEAD:<path>` reads it out of the tree
+without fetching the child. So the workflow checks the root out once and resolves both revisions from it.
+
+### What this obliges, which is the substance rather than a side effect
+
+**The root must be re-pinned before a release is cut.** Until now the order did not matter, because the
+workflow took whatever each branch held. Reading the pin makes the root's state decide what ships.
+
+Release 0.1.5 is the worked example, and it cuts the other way: the root was re-pinned **after** the
+release. Had this been in place, the first run would have built the provider revision the root still
+pinned — the 0.1.4 one — and produced a 0.1.5 archive containing a 0.1.4 provider, quietly and
+successfully. The stale-lock failure that actually happened was louder and more useful.
+
+So this is a trade rather than a pure win: a release now ships what the root says the product is, and a
+root that is behind ships something behind. Naming that in the workflow is part of the change.
+
+### Scope
+
+- `nostdb-cli/.github/workflows/release.yml`: check the root out once, resolve both children's pinned
+  revisions from its tree, and pass each as the `ref` of its checkout;
+- the step comments, so the one that already claimed this behavior now describes it, and the ordering the
+  change obliges is stated where somebody cutting a release reads.
+
+### Stage 32 acceptance criteria
+
+1. both `nostdb-distribution` and `nostdb-provider-github` are checked out at the revision the root pins;
+2. a release whose root pin does not exist fails at the checkout rather than silently building something
+   else;
+3. the workflow states that the root must be re-pinned before a release is cut;
+4. `./scripts/verify-repository.sh` passes in `nostdb-cli`, and `./scripts/verify-workspace.sh` in the root.
+
+### Stage 32 verification
+
+`./scripts/verify-repository.sh` passed in `nostdb-cli`, and `./scripts/verify-workspace.sh` in the root.
+The YAML parses, and both `ref:` expressions reference environment names the resolution step writes.
+
+The resolution was exercised against the real root rather than reasoned about:
+
+```
+$ git rev-parse HEAD:nostdb-distribution     3b8bfa3a…   (matches its HEAD)
+$ git rev-parse HEAD:nostdb-provider-github  396733df…   (matches its HEAD)
+```
+
+and the failure path, which is what criterion 2 asks for:
+
+```
+$ git rev-parse HEAD:not-a-child
+fatal: path 'not-a-child' does not exist in 'HEAD'        exit 128
+```
+
+`rev-parse` writes the fatal to stderr and echoes its argument to stdout, so the check that matters is
+whether `set -e` stops the loop rather than assigning that echo. Run as the step runs it, the loop aborts
+and the step exits 128 — confirmed by running it, because `set -e` with a command substitution in an
+assignment is exactly the shape that silently does not propagate.
+
+### The next release is where this is really tested
+
+Nothing here proves the workflow behaves, only that its inputs resolve. The proof is a release, and the
+first one under this change carries a new obligation: **re-pin the root before cutting it.** Release 0.1.5
+would have violated that — its root was re-pinned afterwards, so the first run would have built the
+provider revision the root still pinned and shipped a 0.1.5 archive containing a 0.1.4 provider, quietly
+and successfully.
+
+That is the trade this Stage makes and does not hide: the release now ships what the root records, which is
+right, and a root left behind now ships something behind.
+
+### Stage 32 closed
+
+Every Acceptance Criterion passes.
