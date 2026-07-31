@@ -9475,3 +9475,28 @@ targets and watch it fail before trusting it.**
 
 It was moved after the extraction, verified against the real drift, and its summary line now reports the
 loop's result rather than printing `ok` beside a failure.
+
+## Surface: convert shows the paths a project has
+
+Asked to use `.nostdb/root.nostdb` in the example, since a configured project always has one, and to write
+`--replace` out rather than leaving it behind an ellipsis.
+
+Both together are 55 characters. Measured against the block, that puts the widest line at **112** — a
+two-column grid cannot hold a 55-character command beside a 52-character description, and the only way to
+keep the grid was to shorten descriptions until they fit, which is the layout deciding what the
+documentation says.
+
+So `convert` left the grid. It is the only command taking two operands, and it now has a short section: the
+rule stated once, then two invocations written in full. The grid stays at 38 and the widest line is 91.
+
+### The two examples are a sequence, and the destructive direction is not one of them
+
+```
+/nostdb convert .nostdb/root.nostdb root.nost
+/nostdb convert .nostdb/root.nostdb root.nost --replace
+```
+
+The second re-runs the first, which is exactly when `--replace` is needed and the shape most people meet it
+in. The first draft showed the reverse for the second line — a `.nost` onto the project's database — which
+is the case the paragraph below the fence warns about, with no baseline check of what the database held. A
+help screen demonstrating the dangerous direction while the prose warns against it teaches the wrong half.
