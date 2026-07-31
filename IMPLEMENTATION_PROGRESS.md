@@ -9450,3 +9450,28 @@ right, and a root left behind now ships something behind.
 ### Stage 32 closed
 
 Every Acceptance Criterion passes.
+
+## Surface: real paths in the convert row, and a line for `--replace`
+
+Asked for `convert <in> <out>` to read as paths, and for `--replace` to appear in the invocation block the
+way `--scan` does.
+
+`/nostdb convert in.nost out.nostdb` shows the extension pair, which is the thing that decides the
+direction, and `/nostdb convert ... --replace` extends it in the same "the same, …" shape `--scan=ai` uses.
+The description column widened from 35 to 38 to fit them; the longest row is now 34 characters.
+
+### A check that could not fail, again
+
+The action map and the table had drifted to `<in> <out>` while the surface showed real paths, and the
+existing cross-check could not see it: it ties the **map** to `ACTIONS.md`, and both are prose an agent
+reads rather than the help a person sees. Two documents agreeing with each other while a third shows
+something else passes it.
+
+The new check greps the rendered surface for every invocation the map declares. Its first version was
+written near the top of the test file, where `$map` is not yet extracted — so the loop ran zero times and
+the check passed unconditionally. That is the second time in this repository a new check has been written
+in a shape that cannot fail, and the same method caught it both times: **create the drift the check
+targets and watch it fail before trusting it.**
+
+It was moved after the extraction, verified against the real drift, and its summary line now reports the
+loop's result rather than printing `ok` beside a failure.
