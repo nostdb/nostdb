@@ -95,6 +95,7 @@ requirements.
 | 33 | DONE | A Spring Boot vocabulary, and the preset check that could not run | Stage 32 |
 | 34 | DONE | Evidence a proposal declares, MIT Skills, Kotlin, Python, and the reconciliation workflow | Stage 33 |
 | 35 | DONE | The Skill's scripts in Python, and two JSON readers that were regexes | Stage 34 |
+| 36 | DONE | `--scan=ai` is a pipeline, not a flag: AI reads instead of the analyzers | Stage 35 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -9983,3 +9984,210 @@ written down in prose that nothing read.
 ### Stage 35 closed
 
 Every Acceptance Criterion passes.
+
+## Stage 36 scope
+
+Reported: `--scan=ai` should not use the analyzers — AI should read the whole project — and the surface
+should say so. Asked to check whether it works that way.
+
+**It did not, and the reason was worse than the surface suggested.**
+
+### `--scan=ai` sent a supported project nothing at all
+
+`PrecisionClass::eligible_for_ai` is `Unsupported | Heuristic`, and `plan` counted a candidate only for a
+language matching it. So a file a deterministic analyzer covers was never a candidate **in any mode**. On a
+project written entirely in supported languages — the ordinary case now that ten languages are analyzed —
+`--scan=ai` had nothing to send, spent nothing, and changed nothing, while declaring itself `required`.
+
+Measured on a three-file Java project, before and after:
+
+```text
+--scan=default  scanned=3 structural=2 candidates=1 input_tokens=366–700
+--scan=ai       scanned=3 structural=2 candidates=1 input_tokens=366–700     <- before
+--scan=ai       scanned=3 structural=2 candidates=3 input_tokens=2766–7100   <- after
+```
+
+### `AiMode::Full` was indistinguishable from `AiMode::Auto`
+
+The narrower fact underneath it, and the one that made the surface's promise unkeepable: **the only branch
+on `ai_mode` in the whole crate was `== AiMode::Off`**, for the token estimate. `Full` — documented as
+"enrichment is required rather than optional" — produced byte-identical output to `Auto` everywhere,
+including in the plan a budget check reads.
+
+So a setting of `ai_mode: "full"` in `.nostdb/settings.json` did nothing whatsoever. This is the same shape
+as the defects Stages 18, 19, and 33 each found: a value declared and never produced, passing its own tests
+because nothing asserted the two modes differed.
+
+### What changed
+
+`plan` now decides candidacy by mode. `Auto` and `Off` read what an analyzer could not cover; `Full` reads
+every scanned file, because that mode asks for AI over the project rather than over the leftovers.
+
+`Off` answers as `Auto` does deliberately. The count is what AI *would* read and the estimate is what this
+run spends, which is what lets a plan say "412 files could be enriched, and this run will spend nothing" —
+returning zero candidates would collapse that into a number a reader cannot tell from "there is nothing to
+enrich".
+
+The budget is why this had to move with the mode rather than being a documentation change. Section 17.6
+requires that a call which *could* exceed a hard limit never starts, and the check compares the top of the
+plan's estimate. A plan counting one file while AI read three would let a run cross a configured ceiling
+with the plan reporting that it fit.
+
+### The direction, given after the finding
+
+`--scan=default` uses the analyzers to scan and produce the `.nostdb`; `--scan=ai` does **not** use them and
+a model reads from scratch; and the CLI validates what comes back, with a fix loop on failure.
+
+That resolves what the finding above could not decide, and it resolves it without any of the contract
+questions I had recorded — because the model's output is a **`.nost` document**, not a packet and not a
+change set. Root `CLAUDE.md` already permits exactly that: "Skills may create candidate `.nost` or graph
+changes, but never write `.nostdb`." No `AnalysisPacket` is needed, because there is no structural graph to
+build one from and the model reads the source directly. Nothing in `ENRICHMENT.md` is contradicted, because
+this is not enrichment.
+
+**The deliverable is the `.nostdb`**, the same artifact `default` produces. A model cannot write one — the
+format is opaque and only the Engine writes it — so the candidate is a mechanism, not a second artifact.
+
+### The pipeline, and every command in it already existed
+
+```bash
+nostdb init PATH                                                    # 1
+nostdb plan --format json --project PATH                            # 2, then the budget check
+                                                                    # 3, the model writes CANDIDATE.nost
+nostdb convert CANDIDATE.nost STAGING.nostdb                        # 4
+nostdb check STAGING.nostdb                                         # 5
+                                                                    # 6, the model fixes; back to 4
+nostdb convert CANDIDATE.nost PATH/.nostdb/root.nostdb --replace    # 7
+```
+
+Verified end to end against 0.1.6 before it was written down: a hand-written candidate standing in for the
+model's output checks clean, converts, and `MATCH (n)` returns its records. Three things that had to be
+measured rather than assumed:
+
+- **`convert` does not create `.nostdb/`.** Without step 1 it fails with `exit 9`, no such file. So `init` is
+  in the pipeline for a mechanical reason as well as a contractual one;
+- **step 6 needs `--replace`**, because step 1 already wrote `root.nostdb`. That overwrites the database, and
+  on a project that was already built it discards the analyzers' facts and anything a person contributed.
+  `SCAN.md` says so and requires the caller be told before it runs;
+- **the candidate document is never checked on its own.** It is an intermediate the Engine consumes, and
+  what is validated is the database. That was asked for explicitly after an earlier reading checked both.
+
+### The fix loop cannot trust the exit code
+
+Schema validation is soft, so a document violating every schema it declares exits `0` and prints `valid`,
+and `convert` commits it while warning. The loop is therefore driven by **whether a diagnostic was printed**,
+not by the exit status. Three attempts, then report and do not convert — each attempt costs what the whole
+repository costs, and a document nobody could validate is not one to commit over a database that opens.
+
+`NOST_UNRESOLVED_ENDPOINT` is explicitly **not** a failure to fix away: a missing symbol becoming a
+Placeholder is the contract's answer, and a model deleting the edge to silence it would remove a fact the
+source contains.
+
+### Scope
+
+- `nostdb-core`: `plan` counts candidates by mode, so `Full` reads the whole tree — recorded above, and now
+  load-bearing rather than a correction, since step 2 is the only thing between a caller and the cost of
+  their repository;
+- `nostdb-cli`: `check` validates a `.nostdb` against the Schemas it holds, which is what makes
+  "the CLI validates the generated database" true rather than a container decode;
+- `skills`: `SCAN.md` is new and required by the verifier; the `enrich` action is renamed **`scan-ai`**,
+  because it no longer enriches anything — it replaces the reader; a `check` action is added, which is what
+  closes the loop; `SKILL.md`, `ACTIONS.md`, and `ENRICHMENT.md` follow, the last of them now saying it
+  describes the `default` pipeline only.
+
+The suite pins the invariant that matters: **`scan-ai` emits no build and offers none as a fallback.** An
+action that quietly built with the analyzers when no model was available would report a graph the caller
+explicitly did not ask for, and the report would look identical to the one they wanted.
+
+### The restated requirement, and the gap it exposed in `check`
+
+Restated with the correction: the CLI validates the AI-generated **`.nostdb`**, and a failed validation is
+fixed. Taken literally that did not work, and the reason was not in the Skill.
+
+**`nostdb check` validated a `.nost` and merely decoded a `.nostdb`.** The `.nost` branch calls `validate`;
+the `.nostdb` branch opened the container, read the graph, and printed counts. So the same graph answered
+differently depending on which way it was read:
+
+```text
+$ nostdb check bad.nost
+8:6: warning: NOST_SCHEMA_VIOLATION: the required field count of type integer is missing
+9:9: warning: NOST_SCHEMA_VIOLATION: the field name is declared string but holds a integer
+
+$ nostdb check bad.nostdb
+bad.nostdb: valid, generation 2, 1 nodes, 0 edges, 0 links, 1 schemas
+```
+
+A loop validating the database would therefore never have fired, whatever the model produced.
+
+**The validator already existed and nothing called it.** `EffectiveSchema::combine(schemas, labels)` and its
+`violations(properties)` are public, tested, and had no caller outside their own tests — a complete
+graph-level conformance rule, written for the model rather than for the document. `check` now uses it, so
+there is one answer to "does this record satisfy its Schema" rather than a second rule that could drift from
+`validate.rs`.
+
+A record is named by identifier and labels rather than a line and column, because a container has no source
+to point into. That is the honest difference between checking a document and checking a database, and it is
+why step 4 is still in the pipeline: step 6 overwrites, so a candidate validated only afterwards is one whose
+predecessor is already gone by the time anything is known to be wrong.
+
+It stays a **warning** in both readers. Schema validation is soft by contract and an explicit Constraint is
+what rejects, so exiting non-zero here would make `check` stricter than the language it reads.
+
+### Validating the database means staging it first
+
+With the document check removed, validating "the generated `.nostdb`" has an ordering problem: step 7
+overwrites the project's database, so a run that checked only afterwards would have destroyed the previous
+generation before learning anything was wrong. The contract is explicit that a failed mutation preserves the
+last valid generation.
+
+So the model's output is converted into a **staging** database, checked there, and only a candidate that
+survives is converted over the real one. Both writes are the Engine's: step 7 re-converts from the same
+document rather than moving the staging file into place, because a Skill copying an opaque container around
+would be handling a format only the Engine may write. The staging database is a validation artifact and is
+thrown away.
+
+Step 4 also catches what `check` cannot reach. A document that does not parse never becomes a database, so
+`convert` failing *is* the diagnostic and there is nothing left to check.
+
+### What is still missing, and it is one thing
+
+`nostdb plan` has no `--scan` option. It reads `analysis.ai_mode` from `.nostdb/settings.json`, and `init`
+writes neither — so the default is `auto`, under which the plan counts only the files no analyzer covers.
+Run `--scan=ai` on a Java project with default settings and the plan reports almost nothing while the model
+is about to read everything, and the budget is checked against that.
+
+So `--scan=ai` currently requires `"ai_mode": "full"` in the project's settings, set by the caller. A Skill
+cannot set it: writing settings is changing state without the Engine, which this repository's own boundary
+forbids. `SCAN.md` states the requirement and what the plan under-reports without it.
+
+A `--scan` option on `plan` removes the problem entirely and is a CLI change on top of the Core change this
+Stage made. It is not done here because the Core change is unreleased, and a CLI depending on an unpushed
+revision is the pin failure Stage 32 exists to prevent.
+
+### What the finding left undecided, and how the direction resolved it
+
+At the point the finding was reported, suppressing the analyzers had no route and three contract questions
+stood in the way. They are kept here because the answer is only legible beside them:
+
+- **nothing can express it.** The CLI exposes no AI option at all, and `build` has no mode that skips
+  analysis — it calls `analyze::analyze` for every file with a registered language. A `build` flag and a
+  `BuildRequest` field would be mechanically easy;
+- **`ENRICHMENT.md` says a Skill never sends a repository**, and an analyzer-free run has nothing else to
+  send. An `AnalysisPacket` is built *from* the structural graph — symbols, structural edges, unresolved
+  references — so with no analyzers there is no packet, and AI would receive raw source instead. Root PRD
+  section 17.5 forbids sending an entire repository **by default**, which an explicit flag is not, but this
+  repository's own document hardened that into "never";
+- **two invariants would need re-reading.** Section 29.1's "supported structural extraction consumes zero
+  external AI tokens" governs the analyzer path and is arguably silent about a mode that runs no structural
+  extraction; the root contract's "build a valid structural database before optional semantic enrichment"
+  is satisfied vacuously by `init` alone, since a failed AI run would then have no structural facts to
+  erase. Both readings are defensible, and neither is this Stage's to choose.
+
+Recorded rather than decided, because the choice is what a run costs and whether a whole repository reaches
+a model. `IMPLEMENTATION_PROGRESS.md` is where the root contract says an unresolved contract question goes.
+
+### Stage 36 verification
+
+`cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings` (clean),
+`cargo test --all-targets --all-features` (986 passed, 0 failed), `./scripts/verify-repository.sh` in
+`nostdb-core` and in `skills`, and `./scripts/verify-workspace.sh` in the root.
