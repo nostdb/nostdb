@@ -96,6 +96,7 @@ requirements.
 | 34 | DONE | Evidence a proposal declares, MIT Skills, Kotlin, Python, and the reconciliation workflow | Stage 33 |
 | 35 | DONE | The Skill's scripts in Python, and two JSON readers that were regexes | Stage 34 |
 | 36 | DONE | `--scan=ai` is a pipeline, not a flag: AI reads instead of the analyzers | Stage 35 |
+| 37 | DONE | Analyzer Skills are found rather than assumed, and named when used | Stage 36 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -10191,3 +10192,71 @@ a model. `IMPLEMENTATION_PROGRESS.md` is where the root contract says an unresol
 `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings` (clean),
 `cargo test --all-targets --all-features` (986 passed, 0 failed), `./scripts/verify-repository.sh` in
 `nostdb-core` and in `skills`, and `./scripts/verify-workspace.sh` in the root.
+
+## Stage 37 scope
+
+Asked that `/nostdb` be able to search for sub-Skills like `nostdb-analyzer-*`, use one when it fits, and
+**say** when it does.
+
+`nostdb-analyzer-springboot` had existed since Stage 33 and `/nostdb` could not see it. One sentence of
+`COVERAGE.md` mentioned it by name; nothing else did, and there was no way to ask what was installed.
+
+### Discovery, not reference
+
+The layout rule this repository enforces is that everything a definition references lives inside its own
+folder, because an installer copies a folder and a reference outside one resolves here and is absent
+everywhere else. So `scripts/analyzers.py` holds **no path to a sibling and no list of names**. It looks at
+the directory this Skill is installed in — `skills/nostdb` here, `.agents/skills/nostdb` in a project that
+installed it — and reports whichever `nostdb-analyzer-*` folders are there.
+
+That is correct beside one, beside several, and beside none, and it is stronger than what it replaces:
+`COVERAGE.md` said the *agent* is what knows which Skills are installed. An agent's belief can be a year old.
+A directory listing cannot.
+
+The test proves it by **inventing** an analyzer at run time — a folder this repository has never heard of,
+created in a temporary install — and asserting it is found and can be announced. A hard-coded list could not
+find that, which a grep for names would not have shown.
+
+### Only the frontmatter is read
+
+`name` and `description`, and nothing further. Both are required of every Skill by the verifier, and
+`description` is precisely what an agent selects a Skill by — so it is what a caller needs to decide whether
+an analyzer fits the project in front of them.
+
+Reading deeper, into a sibling's `presets/index` or its schemas, would couple one Skill to another's internal
+layout. A definition is the part a Skill publishes; the rest is its own business.
+
+The reader is about twenty lines rather than a YAML dependency: it takes top-level `key: value` between the
+delimiters and skips an indented line, so a nested `metadata:` block is passed over rather than misread. Two
+fields do not justify a dependency every install would have to carry.
+
+### Announcing is a command, and refusing is the half that matters
+
+`analyzers.py using NAME` prints one sentence and **refuses a name that is not installed**.
+
+One format means a reader sees the same sentence every time rather than whatever each run invented, and a
+test pins it. The refusal is the part about honesty: a Skill announcing a vocabulary it does not have would
+be claiming a reading nobody performed, and the output would look exactly like the one that did.
+
+Both spellings of a name resolve — `springboot` and `nostdb-analyzer-springboot` — because the short form is
+what somebody types and the long form is what a document names, and refusing either would refuse a name that
+is not ambiguous.
+
+### An analyzer Skill is optional, and reading past one is not
+
+Nothing fails when none is installed; `/nostdb` uses the vocabulary it ships itself, and listing reports that
+on standard error while printing nothing on standard output. What `AGENTS.md` now forbids is reading a
+framework by hand **while a Skill for it is installed**: that produces the same facts under different names,
+and the graph then holds two vocabularies for one subject with no way to tell which a query should use.
+
+### Scope
+
+`skills/nostdb/scripts/analyzers.py` is new, with `tests/analyzers.test.sh` in the repository verifier.
+`/nostdb analyzers` joins the surface, and the dispatcher refuses it the way it refuses `help` — which Skills
+are installed is something the Skill can see and an Engine cannot, so resolving a database to ask what is on
+disk would be the wrong order of operations twice over. `SKILL.md`, `COVERAGE.md`, and `AGENTS.md` follow.
+
+### Stage 37 verification
+
+`./scripts/verify-repository.sh` in `skills` (fourteen new checks among them) and `./scripts/verify-workspace.sh`
+in the root.
