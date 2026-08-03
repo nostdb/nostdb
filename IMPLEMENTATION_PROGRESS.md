@@ -97,6 +97,7 @@ requirements.
 | 35 | DONE | The Skill's scripts in Python, and two JSON readers that were regexes | Stage 34 |
 | 36 | DONE | `--scan=ai` is a pipeline, not a flag: AI reads instead of the analyzers | Stage 35 |
 | 37 | DONE | Analyzer Skills are found rather than assumed, and named when used | Stage 36 |
+| 38 | DONE | A schema field may declare an object, and a separator is optional | Stage 37 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -10260,3 +10261,273 @@ disk would be the wrong order of operations twice over. `SKILL.md`, `COVERAGE.md
 
 `./scripts/verify-repository.sh` in `skills` (fourteen new checks among them) and `./scripts/verify-workspace.sh`
 in the root.
+
+## Stage 38 scope
+
+Asked that a schema be declarable like this:
+
+```nost
+schema Project {
+  name: string
+  description?: string
+  dependencies?: {
+    name: string
+    version?: string
+  }[]
+}
+```
+
+Measured against 0.1.6 first. `?` and one `[]` suffix already worked; **two things did not**, and they
+are independent:
+
+```text
+schema Project { name: string  description?: string }   -> NOST_PARSE_ERROR: expected `}`
+schema Project { d?: { name: string }[] }               -> NOST_PARSE_ERROR: expected a field type
+```
+
+So the request is a separator change and a type change, and only the first is confined to syntax.
+
+### The type change could not be a grammar change
+
+`docs/PRD.md` section 11.1 defined `PropertyValue` with `List(Vec<PropertyScalar>)` and no object. Opening
+the grammar alone would have declared a field **no record could satisfy** — the same shape as the defects
+Stages 18, 19, 33, and 36 each found, and it would have passed its own tests because nothing asserted a
+value existed for the type.
+
+Three readings were possible and they were not equivalent, so the choice was requested rather than
+invented, which is what this file's own rule says to do when the owning contract has to move:
+
+- **related nodes** — the nested object becomes records joined by an edge. No format change, queryable with
+  today's engine, but a field then means a traversal and an anonymous type needs a generated label;
+- **embedded object value** — `PropertyValue` gains an object. Reverses two stated invariants and moves
+  `nostdb_format_version`;
+- **named type only** — `dependencies?: Dependency[]` beside a declared `schema Dependency`, which is not
+  the syntax that was asked for.
+
+**Embedded object value was chosen**, with the canonical writer keeping the comma. Both costs were stated
+before the choice and both were paid.
+
+### Three contract versions moved, and one deliberately did not
+
+| Contract | From | To | `supported` |
+| --- | --- | --- | --- |
+| `nost_language_version` | 3 | 4 | `[4]` |
+| `nostdb_format_version` | 2 | 3 | `[2, 3]` |
+| `result_version` | 1 | 2 | `[1, 2]` |
+
+**The language and the format disagree on their predecessor on purpose.** Every version 4 syntax is
+additive, so a version 3 document means exactly what it meant before — and it is still refused, because a
+reader accepting `@nost 3` would have to refuse the syntax version 3 had no production for, or else the
+number it read governed nothing. That is a field declared and never enforced, which is the defect class
+above. Gating syntax on a declared version is real machinery whose whole return is saving a one-line edit
+to a file `nost: true` regenerates from the database.
+
+A `.nostdb` is the opposite case: opaque, uneditable, and holding user-owned contributions no analyzer can
+rebuild from source. Refusing version 2 would have destroyed data to avoid one decode branch. The branch is
+narrow, and the reason is worth recording — **a version 2 list is byte-identical to a version 3 list**,
+because a version 2 element was written by the scalar writer and the value tags are disjoint from the
+scalar tags, so the version 3 element reader falls through to the same bytes. Only a schema field's declared
+type actually changed shape, from a discriminant and a flag to a tagged recursive form, so `Container` now
+retains the version it validated and exactly one function reads it.
+
+`query_subset_version` does **not** move. Returning a property that holds an object is the envelope's
+business; reaching *inside* one would be new query syntax, and none is added.
+
+### What the finding cost that the request did not predict
+
+Four things had to change that no reading of the request would have named:
+
+- **the CST needed its own field type.** It re-exported `schema::FieldType`, which was safe while a field
+  type was one token carrying nothing. An object type contains *fields*, and a field in the CST carries
+  comments and a range that the model deliberately does not. Sharing one type would have made a comment
+  inside a nested object type unrepresentable, and the canonical form requires every comment to survive a
+  format pass;
+- **`accepts` had to stop being the whole answer.** An object type accepts any object, and the entries are
+  reported separately by path — `dependencies[0].name` — because a Schema is open and validation is soft,
+  so a missing nested key is a violation of that key rather than evidence the value is not an object.
+  Folding both into one boolean reported a nested typo as "this is not an object", which it is;
+- **the object form in a result envelope had to be tagged.** `RESULT.md` already required a tagged value to
+  carry exactly one member, and a bare `{"path": "src/main.rs"}` is a path to every consumer reading that
+  table. Three of the six tag names — `bytes`, `datetime`, `node` — are reserved words a property key can
+  never be, but `relationship`, `path`, and `object` are ordinary identifiers. That only half collide is
+  not a reason to emit bare and forbid those three: a key is the author's to choose, and forbidding `path`
+  so the envelope could stay untagged pushes a format's problem onto the data;
+- **`p.dependencies[0]` was refused with the wrong code.** It reported `CYPHER_SEMANTIC_ERROR: expected the
+  end of the query`, which describes a malformed query. Indexing is recognized syntax outside the subset,
+  so it is `CYPHER_UNSUPPORTED` now, and the message says to return the property and read it in the caller.
+
+### The bound, and where it is enforced
+
+Nesting is capped at **eight** levels. The contract states it as a *minimum every implementation must
+accept* rather than a maximum, so refusal past it is permitted and deliberately **not** fixtured: a fixture
+asserting rejection at nine would forbid another implementation from accepting nine. What is fixtured is
+acceptance at eight, at both ends of the range.
+
+Enforced in three places, because each reads untrusted input by a different route: the parser checks the
+finished type and value, the container decoder checks **while reading** — nothing in a length or a count
+bounds how deeply a list nests, so a decoder measuring the finished value would already have recursed as
+deep as the bytes asked — and `depth` itself is iterative over an explicit stack, because a value deep
+enough to be worth measuring is deep enough to overflow the stack measuring it.
+
+### Two fixtures moved from invalid to valid
+
+`nested_array_type` and `nested_list` asserted the restrictions this version withdraws. They are `valid`
+now, with their notes saying version 3 rejected them, rather than deleted: the record that the rule once
+existed is the useful part.
+
+### A separator rule without significant whitespace
+
+The comma is optional between two fields, two properties, and two evidence fields — one rule for every
+block, because two separator rules would be two rules to learn. Stated without making a line ending
+significant: a field is `key [?] : type`, so an identifier after a complete type can only open the next
+field, and nothing beyond the current token decides it. Trivia stays trivia.
+
+One regression came out of exactly that. `parse_type_expression` called `skip_trivia` before looking for
+`[`, and skipping trivia files every comment as a *pending leading* one — so `name: string // note` lost
+its trailing comment to the next line, and a format pass moved that comment down one line every time. The
+fixture suite caught it as non-idempotent formatting. An array suffix now sits directly against its type,
+which is what version 3 required of the one suffix it allowed.
+
+### Three stale contract headers, and the test that found the third
+
+`NOST_LANGUAGE.md` read `Current version: 2` while the registry said 3, and `NOSTDB_FORMAT.md` read
+`Current version: 1` while the registry said 2. Both had survived a bump each, and nothing compared the
+line to the registry — so a reader opening a contract was told the wrong version by the document that owns
+it.
+
+The check is now a test, and it immediately found a third: `PLUGIN_INSTALL.md` at 1 against a registry
+saying 2. The `supported` column went unchecked too, which only mattered once a contract listed two
+versions; it is checked now.
+
+### Scope
+
+- `nostdb-spec`: both grammars, `NOST_LANGUAGE.md`, `NOSTDB_FORMAT.md`, `QUERY_SUBSET.md`, `RESULT.md`, the
+  version registry, and fixtures — nine new, two moved, and 52 headers bumped;
+- `nostdb-core`: `PropertyValue::Map` and a value-holding list, a recursive `FieldType` that loses `Copy`, a
+  CST field type of its own, the parser, the canonical writer, validation by path, format version 3 with
+  version 2 still readable, `QueryValue::Object`, and the Cypher refusal;
+- `nostdb-cli`: the plugin graph exchange renderer and `graph_exchange_version`, plus the two pins;
+- `nostdb-server`: the Core pin and nothing else, because the daemon calls public APIs;
+- `skills`: the version header in the Spring Boot and JPA presets;
+- root: `docs/PRD.md` section 11.1, which is the contract that had to move first.
+
+### The publication step, once it was authorized
+
+`nostdb-cli` pins `nostdb-core` by exact revision, so nothing in the CLI could see this change until Core
+was pushed — the constraint Stage 32 exists to enforce and the reason Stage 36 deferred a CLI change. With
+the push authorized, the chain was walked in dependency order: `nostdb-spec`, `nostdb-core`,
+`nostdb-server`, then `nostdb-cli`. `nostdb-server` is in that chain because it pins Core too, and a CLI
+pinning one revision beside a Server pinning another gives Cargo two copies of the Engine.
+
+**The CLI was not, in the end, untouched, and the prediction that it might be was wrong.** Two downstream
+consequences only appeared once the new Engine was actually linked:
+
+- **the plugin graph exchange assumed a list element is a scalar.** `plugin_run.rs` duplicated every scalar
+  case inside its list arm, which is what a list of scalars needs and a list of objects cannot use. Both
+  containers recurse now, and `graph_exchange_version` moved 1 to 2 — a CLI-local version field that no
+  registry carries, which is its own small gap. The object is emitted **bare** here, unlike in the result
+  envelope: the only tag a value position in this document carries is `{"bytes": n}`, and `bytes` is a
+  reserved word no property key can be, so there is nothing to collide with;
+- **two Skill presets still declared `@nost 3`.** A preset is a `.nost` document the Engine validates, and a
+  version 4 Engine refuses one at the header. The workspace verifier caught it, which is worth recording
+  because the test beside it says a preset carried `@nost 2` for two releases after the language moved to 3
+  — that time nothing put an Engine on the path.
+
+The CLI also carried two literals that had gone stale through two bumps each: its version-report test
+asserted `[3]` and `[2]`, beside a comment claiming the language was at 2 and the container at 1. Both are
+derived from the constants now, which is the same repair the specification's contract headers needed.
+
+### One thing this Stage got wrong and corrected
+
+`result_version` was first published with `supported: [1, 2]`, reasoned as "an envelope is a message rather
+than a stored artifact, so version 1 stays readable." That is wrong about what `supported` means in this
+registry: **the versions this implementation accepts as input.** Nothing in NostDB reads a result envelope —
+it only produces them — so listing 1 claimed a reader that does not exist, which is precisely the defect
+class this Stage was about. It is `[2]` now, in a follow-up commit, with the reasoning replaced in
+`VERSIONS.md` and `RESULT.md` and the lenient check in Core's conformance suite tightened to match.
+
+The format's `[2, 3]` survives that correction unchanged, because Core genuinely does read a version 2
+container.
+
+No remote was created and no release was cut. Crate versions stay at 0.1.6: publishing is a separate act
+with its own gates, and `nostdb --version --json` reports contract versions rather than a product number.
+
+## Stage 38 acceptance criteria
+
+- The requested declaration parses, validates with no diagnostic, converts to a graph, and round-trips
+  through a container.
+- A comma is optional between two fields and two properties, and the canonical writer still emits it.
+- An object field type is satisfied by an object value, and `{ … }[]` by a list of them.
+- A violation inside an object names the offending entry by path.
+- Nesting past eight levels is refused by the parser and by the container decoder, and eight is accepted.
+- The three moved contract versions agree between `VERSIONS.md`, `versions.json`, and each owning document.
+- A version 2 container still opens; a written container declares version 3.
+- Formatting stays idempotent, and every comment survives a format pass.
+- `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`,
+  `cargo test --all-targets --all-features`, and both repository verifiers pass.
+- `./scripts/verify-workspace.sh` passes at the root, which means every child reports the versions the
+  registry declares.
+
+## Stage 38 published revisions
+
+| Repository | Revision |
+| --- | --- |
+| `nostdb-spec` | `97def88`, after `29a04c5` |
+| `nostdb-core` | `9203c6b`, after `f52b35c` |
+| `nostdb-server` | `e9c7b46` |
+| `nostdb-cli` | `02d2a8d` |
+| `skills` | `20abd37` |
+
+Two of them carry a second commit because the `result_version` correction above was found after the first
+was already pushed. Each repository was verified on its own before being pushed, and the root pins all five.
+
+## Stage 38 verification
+
+In `nostdb-spec`: `cargo test --all-targets --all-features` (14 suites, all passing) and
+`./scripts/verify-repository.sh`.
+
+In `nostdb-core`: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings` (clean),
+`cargo test --all-targets --all-features` (**1023 passed, 0 failed**), and `./scripts/verify-repository.sh`.
+Both run with `NOSTDB_SPEC_FIXTURES` pointing at the sibling checkout, which is how the superproject
+supplies them.
+
+`tests/nested_object_values.rs` is new and covers the requested shape end to end through the public API
+only: the declaration, the stored value, the container round trip, the canonical form, validation by path,
+the depth bound at and past the limit, and the refusal of a contribution block inside an object literal.
+
+In `nostdb-server`: the same four commands, 83 tests passing, and its repository verifier.
+
+In `nostdb-cli`: the same four commands, **259 passed, 0 failed**, and its repository verifier.
+`nostdb --version --json` reports `"nost_language_versions": [4]` and `"nostdb_format_versions": [2, 3]`.
+
+In `skills`: `./scripts/verify-repository.sh`.
+
+At the root: `./scripts/verify-workspace.sh` passes, reporting `version conformance: 13 contracts verified`.
+
+### The workspace verifier caught the inconsistency before it was resolved
+
+Between the Engine landing and the CLI being re-pinned, `./scripts/verify-workspace.sh` failed one check,
+`every_specified_contract_is_reported` in `nostdb-cli`:
+
+```text
+assertion `left == right` failed: nost_language_versions
+  left: [3]
+ right: [4]
+```
+
+That is the gate Stage 14 built, working. Its own comment states the rule: *a build reporting a version the
+registry does not carry is claiming something unpublished; one omitting a version the registry carries is
+understating what it can read.* For that interval the workspace genuinely was inconsistent — the
+specification declared versions the shipped Engine could not read — and the failure is recorded here rather
+than erased, because the three ways to make it green without publishing were all worse than the red:
+
+- pinning the CLI to an unpushed revision is the failure Stage 32 exists to prevent;
+- relaxing the test would trade a true report for a green one;
+- holding the registry at the old versions while the code implemented the new ones would be the same defect
+  the Stage was about.
+
+`nostdb --version --json` now reports `[4]` and `[2, 3]`, and the verifier passes with 13 contracts verified.
+
+### Stage 38 closed
+
+Every Acceptance Criterion passes, including the workspace verifier.

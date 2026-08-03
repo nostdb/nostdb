@@ -454,7 +454,8 @@ pub enum PropertyValue {
     String(String),
     Bytes(Vec<u8>),
     DateTime(String),
-    List(Vec<PropertyScalar>),
+    List(Vec<PropertyValue>),
+    Map(Vec<(String, PropertyValue)>),
 }
 
 pub struct Node {
@@ -479,8 +480,20 @@ pub enum NodeReference {
 }
 ```
 
+A property value may be an object, and a list holds values rather than scalars, so
+a list of objects and a list of lists are both representable. A Schema field
+declares an object with an anonymous object type; `nostdb-spec` owns the syntax
+and the bound on nesting depth.
+
+An object is an **embedded value, not a relationship**. Nothing traverses into
+one, and a query reaches its entries through the property rather than through a
+pattern. A shape that should be reachable by traversal belongs in its own Schema
+with an Edge to it. Both modelings are valid, and the choice is the author's.
+
 Stored property `null` is not supported in the MVP. In queries, `null` means a
-missing or non-applicable value. Assigning `null` removes a property.
+missing or non-applicable value. Assigning `null` removes a property. This holds
+at every depth: an absent entry is absent, and there is no null inside an object
+either.
 
 Labels and relation names are case-sensitive UTF-8 strings after normalization
 and validation defined by `nostdb-spec`.
