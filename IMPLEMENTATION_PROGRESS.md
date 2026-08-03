@@ -98,6 +98,7 @@ requirements.
 | 36 | DONE | `--scan=ai` is a pipeline, not a flag: AI reads instead of the analyzers | Stage 35 |
 | 37 | DONE | Analyzer Skills are found rather than assumed, and named when used | Stage 36 |
 | 38 | DONE | A schema field may declare an object, and a separator is optional | Stage 37 |
+| 39 | DONE | One container version, because a pre-release product has no predecessor to protect | Stage 38 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -10549,3 +10550,108 @@ would still look like output. `nostdb-cli` is at `485c87c`.
 
 The Stage stays `DONE`. Nothing in its Acceptance Criteria was unmet; a criterion was simply narrower than
 the behavior it governed.
+
+## Stage 39 scope
+
+Told that earlier versions need no consideration, because nothing is released yet.
+
+Stage 38 spent something real on that consideration and recorded the reasoning at length:
+`nostdb_format_version` listed `[2, 3]` so an existing `.nostdb` would still open, on the grounds that a
+container holds user-owned contributions no analyzer can rebuild from source.
+
+**That argument is about a released product.** It was the wrong argument for this one, and the correction is
+not a matter of taste: there is no database anywhere whose loss would be a *user's* rather than a
+developer's. So the compatibility protected nothing and was paid for twice —
+
+- a version branch in `read_field_type`, because version 2 wrote a scalar discriminant and an array flag
+  where version 3 writes a tagged recursive shape;
+- a `version` field on `Container`, retained past validation, whose only reader was that branch.
+
+Both are gone, and `SUPPORTED_FORMAT_VERSIONS` is `[3]`.
+
+### What did not change, and is the part that was actually required
+
+The refusal. An unsupported version still reports `NOSTDB_FORMAT_UNSUPPORTED` with the version in the
+diagnostic rather than decoding on a guessed layout, which is the migration **detection** `docs/PRD.md`
+section 12 asks for. Section 12 requires detection and an explicit diagnostic; it never required a reader for
+every version ever written. Stage 38 read more into it than it says.
+
+Nothing else narrowed. `nost_language_version` was already `[4]` and `result_version` already `[2]`, both for
+reasons that survive this Stage untouched — the first because a version that governs no syntax is decorative,
+the second because nothing reads an envelope.
+
+### Narrowing the range made a stated rule reachable
+
+The format contract's comparison table has always listed three outcomes: supported, **below the minimum
+supported**, and above the maximum. The middle row was unfixturable while the minimum was the lowest version
+ever written — no header could express it. `version_below_minimum` exercises it now, with a *correct*
+checksum, so the refusal is provably about the version rather than about corruption.
+
+That is the second time this pair of Stages has found a rule stated and unreachable. It is worth naming the
+pattern: a range wide enough to accept everything also makes the refusal untestable.
+
+### Fifteen fixtures moved, and one deliberately did not
+
+Every header fixture declaring version 2 expected `NOSTDB_CORRUPT` or `NOSTDB_LIMIT_EXCEEDED` for some
+*other* reason — a bad magic, an overlapping section, a non-zero reserved field. With version 2 unsupported,
+the version check fires first and every one of them would have been refused for the wrong reason, passing a
+test that no longer proved anything. All fifteen declare version 3 now, with checksums recomputed.
+
+`bad_header_crc` is the exception: its checksum stays wrong, because being wrong is what it tests. Bumping
+its version and recomputing would have quietly converted it into a valid file.
+
+`valid_current_version`, added in Stage 38 to cover the version a writer emits, is removed: with the three
+accepted headers at version 3 it had become byte-identical to `valid_no_sections`.
+
+### Four stale rules in the format contract
+
+Found while editing around them, and worth the same treatment as the three stale `Current version:` headers
+Stage 38 corrected: `header_length` was required to be 48 "for versions 1 and 2" and, in the ordered check
+list, "for version 1"; `flags` was described as undefined "in version 1"; and the layout diagram called the
+header "48 bytes in version 1". Each states a rule scoped to a version this build no longer reads. They are
+version-neutral now, and the historical record in section 13.2 is left as history.
+
+### Scope
+
+- `nostdb-spec`: the registry, `VERSIONS.md`, `NOSTDB_FORMAT.md`, and seventeen header fixtures;
+- `nostdb-core`: `SUPPORTED_FORMAT_VERSIONS`, the branch, the parameter it threaded, `Container::version()`,
+  and the test that asserted the opposite;
+- `nostdb-server` and `nostdb-cli`: pins only. The CLI needed no change because its version report reads the
+  constant, which is what Stage 38 changed it to do after finding two literals stale through two bumps each.
+
+## Stage 39 acceptance criteria
+
+- `SUPPORTED_FORMAT_VERSIONS` is exactly `[FORMAT_VERSION]`, and no decoder takes a version parameter.
+- A version 2 header with a valid checksum is refused as an unsupported version, not as corruption.
+- Every header fixture is refused for the reason it declares.
+- `nostdb --version --json` reports `"nostdb_format_versions": [3]`.
+- Both narrowed contracts agree between `VERSIONS.md`, `versions.json`, and the owning document.
+- Formatting, lint, tests, and the repository verifier pass in every repository touched, and
+  `./scripts/verify-workspace.sh` passes at the root.
+
+## Stage 39 published revisions
+
+| Repository | Revision |
+| --- | --- |
+| `nostdb-spec` | `814339d` |
+| `nostdb-core` | `ec575b7` |
+| `nostdb-server` | `006de1b` |
+| `nostdb-cli` | `021db25` |
+
+## Stage 39 verification
+
+`nostdb-spec`: 14 suites passing and `./scripts/verify-repository.sh`.
+
+`nostdb-core`: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings` (clean),
+`cargo test --all-targets --all-features` (**1023 passed, 0 failed**), and `./scripts/verify-repository.sh`.
+
+`nostdb-server`: the same four, 83 tests passing.
+
+`nostdb-cli`: the same four, **260 passed, 0 failed**, and `nostdb --version --json` reporting `[4]`, `[3]`,
+and `[2]` for the three contracts Stage 38 moved.
+
+Root: `./scripts/verify-workspace.sh` passes.
+
+### Stage 39 closed
+
+Every Acceptance Criterion passes.
