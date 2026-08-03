@@ -10531,3 +10531,21 @@ than erased, because the three ways to make it green without publishing were all
 ### Stage 38 closed
 
 Every Acceptance Criterion passes, including the workspace verifier.
+
+### Stage 38 follow-up: the output formats were stated and unproven
+
+Closing the Stage left one thing verified only by hand. `RESULT.md` section 4.2 says a CSV value is rendered
+as its JSON form would be, and the same rule carries the table, so an object needed no renderer change at
+all: `value_csv` falls back to the JSON form rather than enumerating variants. Correct, and covered by
+nothing.
+
+Exercised through the built CLI, all four formats were already right — JSON and JSONL nest the tagged
+object, and CSV and the table carry its JSON form in a cell, quoted per RFC 4180. **No defect was found**,
+which is worth stating plainly: this is a note about coverage rather than a repair.
+
+A test now pins it in `nostdb-cli`, because the quoting is the part that would have broken silently — an
+object's JSON form is made of the two characters RFC 4180 cares about, and a renderer that stopped quoting
+would still look like output. `nostdb-cli` is at `485c87c`.
+
+The Stage stays `DONE`. Nothing in its Acceptance Criteria was unmet; a criterion was simply narrower than
+the behavior it governed.
