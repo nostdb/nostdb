@@ -99,6 +99,7 @@ requirements.
 | 37 | DONE | Analyzer Skills are found rather than assumed, and named when used | Stage 36 |
 | 38 | DONE | A schema field may declare an object, and a separator is optional | Stage 37 |
 | 39 | DONE | One container version, because a pre-release product has no predecessor to protect | Stage 38 |
+| 40 | DONE | A project vocabulary, and the Skill checks that ran nowhere | Stage 39 |
 
 A Stage whose dependency names a child repository cannot start until that
 repository is created, connected, and pinned, and creating it still requires
@@ -10653,5 +10654,115 @@ and `[2]` for the three contracts Stage 38 moved.
 Root: `./scripts/verify-workspace.sh` passes.
 
 ### Stage 39 closed
+
+Every Acceptance Criterion passes.
+
+## Stage 40 scope
+
+Asked that the `nostdb` Skill ship a `Project` schema by default, holding a name, a tech stack, a
+description, a structure, and whatever else was worth adding — with the optionality left to judgement.
+
+### The preset mechanism had no way to say "always"
+
+Every preset was selected by an **annotation the Engine reported and did not read**: `@Entity` selects `jpa`,
+and a project with no persistence mapping never sees it. That is a good rule and it cannot express this
+request, because a project has a name and a purpose whether or not it has a single annotation.
+
+The index is four pipe-separated fields, all required — an empty one is a malformed row, and a row read as
+malformed would answer "no preset covers that" for annotations a preset does cover. So the marker is a lone
+`*` in the column that otherwise lists annotations, and it is a *marker* rather than a name:
+`presets.py always` reports it, and `presets.py for '*'` refuses with usage advice rather than matching.
+A reader that treated `*` as an annotation would claim this preset for a build reporting a literal asterisk.
+
+### What the vocabulary holds, and the line it sits on
+
+`name` is the only required field. Everything else is optional because **an absent value and a guessed one
+are different claims** — a project that states no licence is not an unlicensed project.
+
+`tech_stack` and `structure` are object types rather than string lists, which Stage 38 is what made possible.
+"PostgreSQL 16" and "PostgreSQL" are one technology with and without a version, and a flat list either loses
+the version or buries it in a string nothing can read back out.
+
+**`structure` is embedded rather than edged**, and that is the interesting decision. A build already writes a
+`Directory` record for every directory that exists; this says which of them a reader should open first, which
+no listing answers. Edging to those records would put an `ai` claim on an analyzer's record, and a path is a
+mutable source location rather than an identity — so an entry describing `src/` survives a rename as a
+description that is now wrong, rather than as a dangling reference. That is Stage 38's rule read the right
+way round: an object is an embedded value, not a relationship.
+
+What it deliberately omits is anything the analyzers report — no file count, no languages present. A second
+copy owned by `ai` would be the same fact twice with no way to tell which a query should trust. The line is
+not "facts about the project" but **facts nothing else can claim**.
+
+`Project` was checked against the ten labels a build writes before being named. It is not one of them, and the
+test enforcing that has a hard-coded list, so the list was checked against the Engine's own label literals
+rather than trusted.
+
+### Two Skill checks had been failing where nothing looked
+
+Putting an Engine on the path to validate the new preset surfaced these. Both were confirmed against the
+child's `HEAD` before any of this Stage's changes, so neither is a consequence of the request:
+
+- **`resolve-engine` asked the resolver for `nost_language_version` 2**, three versions after that stopped
+  being supported. The one check proving the resolver accepts a live Engine had therefore been failing since
+  Stage 29. It now takes the version from the Engine's own reply, with a negative case beside it so it cannot
+  pass by accepting anything;
+- **`budget-check` built its real-plan fixture from a Python file**, and Stage 34 gave Python an analyzer. The
+  plan then reported `semantic_candidates: 0` and a zero estimate, so all three expectations — `ask`,
+  `refuse`, `skip` — were asking what the budget does about spending nothing, for which `proceed` is the right
+  answer. The fixture is Ruby now, which nothing analyzes. `project.rs` records the same trap for its own
+  fixture, in the same words.
+
+### Why they could rot: the root ran no child suite
+
+Both checks skip without an Engine, and **neither the child's CI nor this root put one there**. The root's own
+preset-validation block already states the principle — a preset lives in one child and the Engine that reads
+it is built from another, so the root is the only place that has both — and then validated the documents
+directly without ever running the suite that knows what else to ask.
+
+The root now builds the Engine and runs `skills/scripts/verify-repository.sh` with it on the path. The
+narrower block is kept: it names the offending document, and it must not depend on the child's suite being
+runnable.
+
+**The new check was falsified before being trusted.** Reintroducing the stale Python fixture makes
+`verify-workspace.sh` exit 1 and print the command to reproduce it; restoring Ruby makes it pass. A check that
+cannot fail is worth nothing, and this Stage is about two that could not.
+
+### Scope
+
+- `skills`: `presets/project.nost` is new; the index gains the `*` row; `scripts/presets.py` gains `always`
+  and refuses the marker where an annotation belongs; `SKILL.md` and `ACTIONS.md` follow; `tests/presets.test.sh`
+  covers the mechanism and the schema, and two stale test fixtures are repaired;
+- root: `scripts/verify-workspace.sh` runs the child's suite against a built Engine.
+
+No contract version moved. A preset is a document the Engine validates, not a contract, and nothing about the
+language, the container, or the envelope changed.
+
+## Stage 40 acceptance criteria
+
+- `/nostdb preset` lists `project`, and the Engine reports `presets/project.nost` valid.
+- `presets.py always` names it; `presets.py for '*'` refuses; `presets.py for Entity` still answers `jpa`.
+- `Project` is none of the labels a build writes, checked against the Engine's own literals.
+- `tech_stack` and `structure` are object types, and `name` is the only required field.
+- No field duplicates a fact an analyzer reports.
+- The skills suite passes both with and without an Engine on the path.
+- `./scripts/verify-workspace.sh` passes, and fails when a stale fixture is reintroduced.
+
+## Stage 40 published revisions
+
+| Repository | Revision |
+| --- | --- |
+| `skills` | `ae35157` |
+
+## Stage 40 verification
+
+`skills`: `./scripts/verify-repository.sh` passes with an Engine on the path and without one — the second is
+how the child's CI runs it, and the first is what this Stage made the root do. 21 preset checks among them.
+
+Root: `./scripts/verify-workspace.sh` passes, reporting `preset conformance: 3 Skill preset(s) verified by the
+Engine` and `skills conformance: the child's suite passed with this workspace's Engine on the path`. It exits
+1 with a reproduction command when the repaired fixture is reverted.
+
+### Stage 40 closed
 
 Every Acceptance Criterion passes.

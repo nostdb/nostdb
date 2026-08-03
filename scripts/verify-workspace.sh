@@ -247,6 +247,40 @@ if [ -d skills ] && [ -f nostdb-cli/Cargo.toml ]; then
   echo "preset conformance: $preset_count Skill preset(s) verified by the Engine"
 fi
 
+# The skills child's own suite, run with an Engine on the path.
+#
+# Its verifier has checks that need a real `nostdb` and skip without one: whether the resolver accepts a live
+# Engine, and what the budget decides about a plan the Engine actually produced. Neither the child's CI nor
+# this root put an Engine there, so those checks ran nowhere — and two of them had been failing invisibly for
+# several Stages. One asked the resolver for `nost_language_version` 2, three versions after that stopped
+# being supported. The other built its plan from a Python file, and Python gained an analyzer, so the plan it
+# examined had nothing to enrich and every expectation about spending was answering a question about spending
+# nothing.
+#
+# The block above already validates each preset directly and is kept: it is the narrower check, it names the
+# offending document, and it must not depend on the child's suite being runnable. This adds the part only the
+# child knows how to ask — and it is the root's to run for the reason stated above, because the Engine is
+# built from one child and the Skill lives in another.
+if [ -d skills ] && [ -x skills/scripts/verify-repository.sh ] && [ -f nostdb-cli/Cargo.toml ]; then
+  if ! cargo build --quiet --manifest-path nostdb-cli/Cargo.toml 2>/dev/null; then
+    echo "the Engine could not be built, so the skills suite cannot be run against one" >&2
+    exit 1
+  fi
+  engine_directory=$(CDPATH= cd -- nostdb-cli/target/debug && pwd)
+  if [ ! -x "$engine_directory/nostdb" ]; then
+    echo "no nostdb executable at $engine_directory after a successful build" >&2
+    exit 1
+  fi
+  # Run from the child, which is where its verifier expects to be, with the Engine ahead of anything
+  # installed so the suite reads this workspace's build rather than whatever is on the machine.
+  if ! (cd skills && PATH="$engine_directory:$PATH" ./scripts/verify-repository.sh >/dev/null 2>&1); then
+    echo "the skills suite failed with an Engine on the path; re-run it there to see which check:" >&2
+    echo "  (cd skills && PATH=\"$engine_directory:\$PATH\" ./scripts/verify-repository.sh)" >&2
+    exit 1
+  fi
+  echo "skills conformance: the child's suite passed with this workspace's Engine on the path"
+fi
+
 # Cross-repository distribution check.
 #
 # This root, docs/REPOSITORIES.md, and docs/PRD.md section 8.1 all describe the Skills as
